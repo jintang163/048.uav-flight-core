@@ -52,7 +52,8 @@ typedef enum {
     FLIGHT_MODE_POS_HOLD = 2,
     FLIGHT_MODE_AUTO = 3,
     FLIGHT_MODE_RTL = 4,
-    FLIGHT_MODE_LAND = 5
+    FLIGHT_MODE_LAND = 5,
+    FLIGHT_MODE_FORMATION = 6
 } FlightMode;
 
 typedef enum {
@@ -147,5 +148,63 @@ typedef struct {
 #define ERROR_FLAG_RC_SIGNAL_LOSS  (1 << 4)
 #define ERROR_FLAG_LOW_BATTERY     (1 << 5)
 #define ERROR_FLAG_MOTOR_FAILURE   (1 << 6)
+
+typedef enum {
+    FORMATION_LINE = 0,
+    FORMATION_TRIANGLE = 1,
+    FORMATION_CIRCLE = 2
+} FormationType;
+
+typedef enum {
+    FORMATION_STATE_IDLE = 0,
+    FORMATION_STATE_READY = 1,
+    FORMATION_STATE_EXECUTING = 2,
+    FORMATION_STATE_PAUSED = 3
+} FormationState;
+
+typedef struct {
+    uint8_t uav_id;
+    Vector3f relative_pos;
+    Vector3f velocity;
+    float yaw;
+    uint32_t last_update;
+    bool online;
+} UWBNeighborInfo;
+
+#define MAX_FORMATION_UAVS 16
+#define FORMATION_POSITION_ERROR_MAX 0.3f
+#define COLLISION_WARNING_DISTANCE 5.0f
+#define COLLISION_DECELERATION_FACTOR 0.5f
+
+typedef struct {
+    FormationType type;
+    FormationState state;
+    uint8_t uav_id;
+    uint8_t total_uavs;
+    float spacing;
+    uint8_t leader_id;
+    bool is_leader;
+    Vector3f formation_offset;
+    UWBNeighborInfo neighbors[MAX_FORMATION_UAVS];
+    uint8_t neighbor_count;
+    bool collision_warning;
+    float min_distance;
+    uint8_t closest_uav_id;
+    uint32_t sync_timestamp;
+    bool synced;
+} FormationData;
+
+typedef struct {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+    uint8_t effect;
+    uint32_t timestamp;
+} FormationLightCommand;
+
+#define LIGHT_EFFECT_STATIC 0
+#define LIGHT_EFFECT_BLINK 1
+#define LIGHT_EFFECT_RAINBOW 2
+#define LIGHT_EFFECT_BREATHING 3
 
 #endif

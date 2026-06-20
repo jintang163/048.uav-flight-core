@@ -6,6 +6,7 @@ import telemetryReducer from './slices/telemetry'
 import missionReducer from './slices/mission'
 import alertReducer from './slices/alert'
 import geofenceReducer from './slices/geofence'
+import formationReducer from './slices/formation'
 
 export const store = configureStore({
   reducer: {
@@ -14,7 +15,8 @@ export const store = configureStore({
     telemetry: telemetryReducer,
     mission: missionReducer,
     alert: alertReducer,
-    geofence: geofenceReducer
+    geofence: geofenceReducer,
+    formation: formationReducer
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

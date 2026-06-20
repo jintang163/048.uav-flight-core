@@ -27,6 +27,7 @@ const Geofence = lazy(() => import('@/pages/Geofence'))
 const AlertCenter = lazy(() => import('@/pages/AlertCenter'))
 const Firmware = lazy(() => import('@/pages/Firmware'))
 const Settings = lazy(() => import('@/pages/Settings'))
+const Formation = lazy(() => import('@/pages/Formation'))
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAppSelector(state => state.auth)
@@ -110,6 +111,14 @@ const routes: RouteObject[] = [
         element: (
           <Suspense fallback={<Loading />}>
             <Geofence />
+          </Suspense>
+        )
+      },
+      {
+        path: 'formation',
+        element: (
+          <Suspense fallback={<Loading />}>
+            <Formation />
           </Suspense>
         )
       },

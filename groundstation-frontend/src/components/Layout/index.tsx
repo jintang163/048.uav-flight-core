@@ -30,7 +30,8 @@ import {
   WifiOffOutlined,
   NotificationOutlined,
   BulbOutlined,
-  SunOutlined
+  SunOutlined,
+  TeamOutlined
 } from '@ant-design/icons'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '@/store'
@@ -263,6 +264,11 @@ const MainLayout: React.FC = () => {
       key: 'geofence',
       icon: <SafetyOutlined />,
       label: '电子围栏'
+    },
+    {
+      key: 'formation',
+      icon: <TeamOutlined />,
+      label: '编队控制'
     },
     {
       key: 'alert-center',

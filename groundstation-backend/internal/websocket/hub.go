@@ -14,9 +14,11 @@ type Hub struct {
 	unregister chan *Client
 	mu         sync.RWMutex
 
-	uavSubscriptions map[uint64][]*Client
-	metricsService   *service.MetricsService
-	telemetryService *service.FlightService
+	uavSubscriptions       map[uint64][]*Client
+	formationSubscriptions map[uint64][]*Client
+	metricsService         *service.MetricsService
+	telemetryService       *service.FlightService
+	formationService       *service.FormationService
 }
 
 type Message struct {
@@ -34,13 +36,15 @@ var once sync.Once
 func NewHub() *Hub {
 	once.Do(func() {
 		hub = &Hub{
-			broadcast:        make(chan []byte, 1024),
-			register:         make(chan *Client),
-			unregister:       make(chan *Client),
-			clients:          make(map[*Client]bool),
-			uavSubscriptions: make(map[uint64][]*Client),
-			metricsService:   service.NewMetricsService(),
-			telemetryService: service.NewFlightService(),
+			broadcast:              make(chan []byte, 1024),
+			register:               make(chan *Client),
+			unregister:             make(chan *Client),
+			clients:                make(map[*Client]bool),
+			uavSubscriptions:       make(map[uint64][]*Client),
+			formationSubscriptions: make(map[uint64][]*Client),
+			metricsService:         service.NewMetricsService(),
+			telemetryService:       service.NewFlightService(),
+			formationService:       service.NewFormationService(),
 		}
 		go hub.run()
 	})
@@ -357,5 +361,123 @@ func (h *Hub) SendToClient(client *Client, msgType string, data interface{}) {
 	select {
 	case client.send <- bytes:
 	default:
+	}
+}
+
+func (h *Hub) BroadcastFormationUpdate(formationID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "formation_update",
+		Data:    data,
+		Payload: data,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	clients := h.formationSubscriptions[formationID]
+	for _, client := range clients {
+		select {
+		case client.send <- bytes:
+		default:
+		}
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastFormationStatus(formationID uint64, status string) {
+	data := map[string]interface{}{
+		"formation_id": formationID,
+		"status":       status,
+		"timestamp":    time.Now().UnixNano() / 1e6,
+	}
+
+	msg := &Message{
+		Type:    "formation_status",
+		Data:    data,
+		Payload: data,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastFormationCollisionWarning(formationID uint64, warning interface{}) {
+	msg := &Message{
+		Type:    "formation_collision_warning",
+		Data:    warning,
+		Payload: warning,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastFormationLightUpdate(formationID uint64, lightData interface{}) {
+	data := map[string]interface{}{
+		"formation_id": formationID,
+		"light":        lightData,
+		"timestamp":    time.Now().UnixNano() / 1e6,
+	}
+
+	msg := &Message{
+		Type:    "formation_light",
+		Data:    data,
+		Payload: data,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) SubscribeFormation(client *Client, formationID uint64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.formationSubscriptions[formationID] = append(h.formationSubscriptions[formationID], client)
+}
+
+func (h *Hub) UnsubscribeFormation(client *Client, formationID uint64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	clients := h.formationSubscriptions[formationID]
+	for i, c := range clients {
+		if c == client {
+			h.formationSubscriptions[formationID] = append(clients[:i], clients[i+1:]...)
+			break
+		}
+	}
+}
+
+func (h *Hub) broadcastFormations() {
+	formations, err := h.formationService.GetActiveFormations()
+	if err != nil {
+		return
+	}
+
+	for _, formation := range formations {
+		h.BroadcastFormationUpdate(formation.ID, formation)
 	}
 }

@@ -3,6 +3,7 @@ export * from './telemetry'
 export * from './mission'
 export * from './geofence'
 export * from './alert'
+export * from './formation'
 
 export interface ApiResponse<T = unknown> {
   code: number
