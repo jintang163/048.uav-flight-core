@@ -428,3 +428,17 @@ bool mavlink_handler_is_gcs_connected(void)
 {
     return mavlink_data.gcs_connected;
 }
+
+void mavlink_send_geofence_violation(uint16_t fence_id, uint8_t violation_type,
+                                     uint8_t severity, float distance,
+                                     float lat, float lon, float alt)
+{
+    char text[128];
+    snprintf(text, sizeof(text),
+             "GEOFENCE VIOLATION: fence=%d type=%d sev=%d dist=%.1fm pos=%.6f,%.6f,%.1fm",
+             fence_id, violation_type, severity, distance, lat, lon, alt);
+    
+    mavlink_send_statustext(severity == 0 ? MAV_SEVERITY_WARNING : 
+                            severity == 1 ? MAV_SEVERITY_CRITICAL : MAV_SEVERITY_EMERGENCY,
+                            text);
+}

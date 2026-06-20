@@ -61,4 +61,8 @@ void mavlink_set_target_attitude(float roll, float pitch, float yaw, float thrus
 void mavlink_set_target_position(int32_t lat, int32_t lon, int32_t alt);
 bool mavlink_get_command(ControlCommand *cmd);
 
+void mavlink_send_geofence_violation(uint16_t fence_id, uint8_t violation_type,
+                                     uint8_t severity, float distance,
+                                     float lat, float lon, float alt);
+
 #endif

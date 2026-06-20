@@ -168,6 +168,8 @@ func main() {
 			geofence.DELETE("/:id", middleware.RoleAuth(models.UserRoleAdmin), handler.DeleteGeofence)
 			geofence.GET("/uav/:uav_id", handler.GetUAVGeofences)
 			geofence.GET("/uav/:uav_id/check", handler.CheckViolation)
+			geofence.GET("/uav/:uav_id/takeoff-check", handler.CheckTakeoffPermission)
+			geofence.POST("/national/import", middleware.RoleAuth(models.UserRoleAdmin), handler.ImportNationalGeofences)
 		}
 
 		violation := api.Group("/geofence-violations", middleware.JWTAuth())

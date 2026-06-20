@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"groundstation-backend/internal/middleware"
 	"groundstation-backend/internal/models"
@@ -213,4 +214,70 @@ func GetUAVGeofences(c *gin.Context) {
 	}
 
 	utils.SuccessResponse(c, "获取成功", geofences)
+}
+
+func CheckTakeoffPermission(c *gin.Context) {
+	uavID, err := utils.ParseUint64(c.Param("uav_id"))
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "无效的无人机ID", nil)
+		return
+	}
+
+	lat, _ := utils.ParseFloat64(c.Query("lat"))
+	lng, _ := utils.ParseFloat64(c.Query("lng"))
+	altitude, _ := utils.ParseFloat64(c.Query("altitude"))
+
+	result, err := geofenceService.CheckTakeoffPermission(uavID, lat, lng, altitude)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, err.Error(), nil)
+		return
+	}
+
+	utils.SuccessResponse(c, "检测完成", result)
+}
+
+type ImportNationalRequest struct {
+	Geofences []CreateGeofenceRequest `json:"geofences" binding:"required"`
+}
+
+func ImportNationalGeofences(c *gin.Context) {
+	var req ImportNationalRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "参数错误: "+err.Error(), nil)
+		return
+	}
+
+	geofences := make([]models.Geofence, 0, len(req.Geofences))
+	for _, item := range req.Geofences {
+		gf := models.Geofence{
+			Name:        item.Name,
+			Description: item.Description,
+			Type:        item.Type,
+			Shape:       item.Shape,
+			Category:    item.Category,
+			FailAction:  item.FailAction,
+			CenterLat:   item.CenterLat,
+			CenterLng:   item.CenterLng,
+			Radius:      item.Radius,
+			MaxAltitude: item.MaxAltitude,
+			MaxDistance: item.MaxDistance,
+			CountryCode: item.CountryCode,
+			CityName:    item.CityName,
+		}
+		if len(item.Coordinates) > 0 {
+			coordsJSON, _ := json.Marshal(item.Coordinates)
+			gf.Coordinates = string(coordsJSON)
+		}
+		geofences = append(geofences, gf)
+	}
+
+	count, err := geofenceService.ImportNationalGeofences(geofences)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, err.Error(), nil)
+		return
+	}
+
+	utils.SuccessResponse(c, "导入成功", gin.H{
+		"count": count,
+	})
 }

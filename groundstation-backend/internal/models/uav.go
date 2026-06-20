@@ -30,6 +30,9 @@ type UAV struct {
 	Protocol     string         `gorm:"type:varchar(10);default:'tcp'" json:"protocol"`
 	OwnerID      uint64         `json:"owner_id"`
 	LastSeenAt   *time.Time     `json:"last_seen_at"`
+	HomeLatitude float64        `gorm:"type:decimal(10,7)" json:"home_latitude"`
+	HomeLongitude float64       `gorm:"type:decimal(10,7)" json:"home_longitude"`
+	HomeAltitude float64        `gorm:"type:decimal(8,2)" json:"home_altitude"`
 	Description  string         `gorm:"type:text" json:"description"`
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`

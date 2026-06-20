@@ -94,3 +94,11 @@ func (r *UAVRepository) GetOnlineUAVs() ([]models.UAV, error) {
 	}).Preload("FlightStatus").Find(&uavs).Error
 	return uavs, err
 }
+
+func (r *UAVRepository) UpdateHomePosition(id uint64, lat, lng, alt float64) error {
+	return r.db.Model(&models.UAV{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"home_latitude":  lat,
+		"home_longitude": lng,
+		"home_altitude":  alt,
+	}).Error
+}

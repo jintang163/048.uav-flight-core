@@ -7,6 +7,7 @@ import (
 	"groundstation-backend/internal/config"
 	"groundstation-backend/internal/models"
 	"groundstation-backend/internal/repository"
+	"groundstation-backend/internal/websocket"
 	"groundstation-backend/pkg/utils"
 	"time"
 
@@ -21,6 +22,7 @@ type FlightService struct {
 	missionRepo *repository.MissionRepository
 	alertRepo   *repository.AlertRepository
 	redis       *redis.Client
+	geofenceSvc *GeofenceService
 }
 
 func NewFlightService() *FlightService {
@@ -30,6 +32,7 @@ func NewFlightService() *FlightService {
 		missionRepo: repository.NewMissionRepository(),
 		alertRepo:   repository.NewAlertRepository(),
 		redis:       config.Redis,
+		geofenceSvc: NewGeofenceService(),
 	}
 }
 
@@ -86,11 +89,19 @@ func (s *FlightService) ProcessTelemetry(data *TelemetryData) error {
 
 	_ = s.uavRepo.UpdateLastSeen(data.UAVID)
 
+	if data.ArmStatus && data.GPSFixType >= 3 {
+		uav, err := s.uavRepo.FindByID(data.UAVID)
+		if err == nil && uav != nil && (uav.HomeLatitude == 0 || uav.HomeLongitude == 0) {
+			_ = s.uavRepo.UpdateHomePosition(data.UAVID, data.Latitude, data.Longitude, data.AltitudeMSL)
+		}
+	}
+
 	cacheKey := "uav:telemetry:" + utils.Uint64ToString(data.UAVID)
 	cacheData, _ := json.Marshal(data)
 	_ = s.redis.Set(ctx, cacheKey, cacheData, time.Minute).Err()
 
 	go s.checkAlerts(data)
+	go s.checkGeofenceViolation(data)
 
 	return nil
 }
@@ -144,6 +155,25 @@ func (s *FlightService) checkAlerts(data *TelemetryData) {
 			SignalStrength: data.SignalStrength,
 		}
 		_ = s.alertRepo.Create(alert)
+	}
+}
+
+func (s *FlightService) checkGeofenceViolation(data *TelemetryData) {
+	if s.geofenceSvc == nil || data.GPSFixType < 3 {
+		return
+	}
+
+	if data.Latitude == 0 && data.Longitude == 0 {
+		return
+	}
+
+	violations, err := s.geofenceSvc.CheckViolation(data.UAVID, data.Latitude, data.Longitude, data.AltitudeRel)
+	if err != nil {
+		return
+	}
+
+	if len(violations) > 0 {
+		websocket.BroadcastGeofenceViolation(data.UAVID, violations[0].GeofenceID, data.Latitude, data.Longitude)
 	}
 }
 
