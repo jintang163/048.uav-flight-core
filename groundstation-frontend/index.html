@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="无人机地面站控制系统" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>无人机地面站</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #0f172a;
+      }
+      
+      #root {
+        width: 100%;
+        height: 100%;
+      }
+      
+      .loading-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #0f172a;
+        z-index: 9999;
+      }
+      
+      .loading-logo {
+        width: 80px;
+        height: 80px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #1890ff 0%, #52c41a 100%);
+        border-radius: 16px;
+        font-size: 40px;
+        color: #fff;
+        margin-bottom: 24px;
+        animation: pulse 2s ease-in-out infinite;
+      }
+      
+      .loading-text {
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 16px;
+      }
+      
+      .loading-spinner {
+        width: 32px;
+        height: 32px;
+        border: 3px solid rgba(255, 255, 255, 0.1);
+        border-top-color: #1890ff;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      
+      @keyframes pulse {
+        0%, 100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        50% {
+          transform: scale(1.05);
+          opacity: 0.8;
+        }
+      }
+      
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="loading-container">
+        <div class="loading-logo">🛸</div>
+        <div class="loading-text">无人机地面站</div>
+        <div class="loading-spinner"></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

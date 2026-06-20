@@ -1,0 +1,57 @@
+server:
+  port: 8080
+  mode: debug
+
+database:
+  host: 127.0.0.1
+  port: 3306
+  user: root
+  password: root
+  dbname: uav_groundstation
+  charset: utf8mb4
+  max_idle_conns: 10
+  max_open_conns: 100
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 100
+
+nsq:
+  producer_addr: 127.0.0.1:4150
+  consumer_lookup_addr: 127.0.0.1:4161
+
+jwt:
+  secret: "uav-groundstation-secret-key-2024"
+  access_token_expire: 3600
+  refresh_token_expire: 86400
+
+mavlink:
+  tcp_port: 5760
+  udp_port: 14550
+  heartbeat_interval: 1000
+  timeout: 5000
+
+websocket:
+  telemetry_interval: 50
+  max_connections: 1000
+
+minio:
+  endpoint: 127.0.0.1:9000
+  access_key: minioadmin
+  secret_key: minioadmin
+  bucket_logs: uav-logs
+  bucket_missions: uav-missions
+  use_ssl: false
+
+alert:
+  sms_api: "https://sms.example.com/send"
+  sms_api_key: ""
+  email_smtp_host: smtp.example.com
+  email_smtp_port: 587
+  email_user: alert@example.com
+  email_password: ""
+  low_battery_threshold: 20
+  signal_loss_threshold: 30000

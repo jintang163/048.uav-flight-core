@@ -1,41 +1,63 @@
-# Java
-*.class
-*.jar
-*.war
-*.ear
-target/
-!.mvn/wrapper/maven-wrapper.jar
-
 # IDE
 .idea/
-*.iml
 .vscode/
 *.swp
 *.swo
+*~
 
-# Node
-node_modules/
+# Build artifacts
+build/
 dist/
-.npm
-.eslintcache
+*.o
+*.obj
+*.elf
+*.bin
+*.hex
+*.map
+
+# Dependencies
+node_modules/
+vendor/
+target/
 
 # Logs
 *.log
 logs/
+*.log.*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
 
 # OS
 .DS_Store
 Thumbs.db
 
-# MinIO
-minio-data/
+# Testing
+coverage/
+*.out
 
-# Docker
-*.pid
-*.seed
+# IDE project files
+*.project
+*.cproject
+*.settings/
 
-# Trae
-.trae/
+# STM32 build
+Debug/
+Release/
+*.ld
+*.d
 
-# WeChat Mini Program
-miniprogram_npm/
+# Go
+go.sum
+go.mod.tmp
+
+# Python
+__pycache__/
+*.pyc
+*.pyo

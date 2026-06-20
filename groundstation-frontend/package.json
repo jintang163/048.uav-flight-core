@@ -1,0 +1,38 @@
+{
+  "name": "groundstation-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "无人机地面站前端系统",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@amap/amap-jsapi-loader": "^1.0.1",
+    "@ant-design/icons": "^5.2.0",
+    "@reduxjs/toolkit": "^1.9.7",
+    "antd": "^5.11.0",
+    "axios": "^1.6.0",
+    "dayjs": "^1.11.10",
+    "echarts": "^5.4.0",
+    "echarts-for-react": "^3.0.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-redux": "^8.1.3",
+    "react-router-dom": "^6.18.0",
+    "styled-components": "^6.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "eslint": "^8.54.0",
+    "typescript": "^6.0.3",
+    "vite": "^5.0.0"
+  }
+}

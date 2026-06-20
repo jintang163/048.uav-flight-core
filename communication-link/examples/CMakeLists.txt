@@ -1,0 +1,8 @@
+add_executable(example_uav_gcs example_uav_gcs.c)
+target_link_libraries(example_uav_gcs communication_link)
+
+add_executable(example_secure_link example_secure_link.c)
+target_link_libraries(example_secure_link communication_link)
+
+add_executable(example_multi_link example_multi_link.c)
+target_link_libraries(example_multi_link communication_link)

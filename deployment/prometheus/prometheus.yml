@@ -1,0 +1,48 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'uav-monitor'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'uav-backend'
+    scrape_interval: 5s
+    metrics_path: '/api/v1/metrics'
+    static_configs:
+      - targets: ['backend:8080']
+
+  - job_name: 'nsq'
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['nsqd:4151']
+
+  - job_name: 'mysql'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['mysqld-exporter:9104']
+
+  - job_name: 'redis'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  - job_name: 'minio'
+    scrape_interval: 15s
+    metrics_path: '/minio/v2/metrics/cluster'
+    static_configs:
+      - targets: ['minio:9000']

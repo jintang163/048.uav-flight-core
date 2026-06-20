@@ -1,0 +1,220 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+    'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) rgba(255, 255, 255, 0.05);
+}
+
+.ant-message {
+  z-index: 9999 !important;
+}
+
+.ant-notification {
+  z-index: 9999 !important;
+}
+
+.ant-modal {
+  z-index: 1000 !important;
+}
+
+.ant-drawer {
+  z-index: 1000 !important;
+}
+
+.ant-picker-dropdown,
+.ant-select-dropdown,
+.ant-dropdown {
+  z-index: 1100 !important;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.9) !important;
+  -webkit-box-shadow: 0 0 0px 1000px transparent inset !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+.ant-table {
+  background: transparent !important;
+}
+
+.ant-table-cell {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.ant-table-thead .ant-table-cell {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+.ant-table-tbody .ant-table-row:hover .ant-table-cell {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+.ant-tag {
+  border: none;
+}
+
+.ant-input,
+.ant-select-selector,
+.ant-picker {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.ant-input:hover,
+.ant-select-selector:hover,
+.ant-picker:hover {
+  border-color: rgba(24, 144, 255, 0.5) !important;
+}
+
+.ant-input-focused,
+.ant-select-focused .ant-select-selector,
+.ant-picker-focused {
+  border-color: #1890ff !important;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1) !important;
+}
+
+.ant-input::placeholder,
+.ant-select-selection-placeholder {
+  color: rgba(255, 255, 255, 0.3) !important;
+}
+
+.ant-progress-text {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.ant-descriptions-item-label {
+  background: rgba(255, 255, 255, 0.03) !important;
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.ant-descriptions-item-content {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.ant-statistic-title {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.ant-statistic-content {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.ant-tabs-tab {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+.ant-tabs-tab-active {
+  color: #1890ff !important;
+}
+
+.ant-tabs-ink-bar {
+  background: #1890ff !important;
+}
+
+.ant-form-item-label > label {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.ant-empty-description {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+.ant-list-item-meta-title {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.ant-list-item-meta-description {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #1890ff 0%, #52c41a 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-border {
+  position: relative;
+}
+
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, #1890ff 0%, #52c41a 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}

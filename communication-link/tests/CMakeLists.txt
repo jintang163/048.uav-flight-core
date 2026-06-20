@@ -1,0 +1,11 @@
+add_executable(test_mavlink_parser test_mavlink_parser.c)
+target_link_libraries(test_mavlink_parser communication_link)
+add_test(NAME test_mavlink_parser COMMAND test_mavlink_parser)
+
+add_executable(test_sm4 test_sm4.c)
+target_link_libraries(test_sm4 communication_link)
+add_test(NAME test_sm4 COMMAND test_sm4)
+
+add_executable(test_transport test_transport.c)
+target_link_libraries(test_transport communication_link)
+add_test(NAME test_transport COMMAND test_transport)
