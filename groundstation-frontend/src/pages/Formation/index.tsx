@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import styled from 'styled-components'
 import {
   Row,
@@ -28,7 +28,10 @@ import {
   PauseCircleOutlined,
   ReloadOutlined,
   StopOutlined,
-  PlusOutlined
+  PlusOutlined,
+  SendOutlined,
+  CloudUploadOutlined,
+  ThunderboltOutlined
 } from '@ant-design/icons'
 import { useAppSelector, useAppDispatch } from '@/store'
 import {
@@ -39,12 +42,15 @@ import {
   resumeFormationById,
   stopFormationById,
   createNewFormation,
-  selectFormation
+  selectFormation,
+  addCollisionWarning as addCollisionWarningAction
 } from '@/store/slices/formation'
 import { getUAVList } from '@/api/uav'
-import { setFormationLight } from '@/api/formation'
+import { setFormationLight, syncFormationWaypoints, multiTakeoff } from '@/api/formation'
+import { useWebSocket } from '@/hooks/useWebSocket'
+import { subscribeToFormation, unsubscribeFromFormation } from '@/websocket/telemetry'
 import { FormationType, FormationStatus, LightEffect } from '@/types'
-import type { Formation, UAVListItem, FormationLightConfig } from '@/types'
+import type { Formation, UAVListItem, FormationLightConfig, FormationCollisionWarning } from '@/types'
 
 const Container = styled.div`
   width: 100%;
@@ -338,11 +344,17 @@ const getFormationStatusText = (status: FormationStatus): string => {
 
 const FormationMonitor: React.FC = () => {
   const dispatch = useAppDispatch()
-  const { formations, currentFormation, selectedFormationId, loading, listLoading, total } =
+  const { formations, currentFormation, selectedFormationId, loading, listLoading, total, collisionWarnings } =
     useAppSelector(state => state.formation)
 
+  const { client: wsClient, isConnected: wsConnected } = useWebSocket()
+
   const [createModalVisible, setCreateModalVisible] = useState(false)
+  const [syncWaypointModalVisible, setSyncWaypointModalVisible] = useState(false)
+  const [takeoffModalVisible, setTakeoffModalVisible] = useState(false)
   const [createForm] = Form.useForm()
+  const [syncForm] = Form.useForm()
+  const [takeoffForm] = Form.useForm()
   const [uavList, setUavList] = useState<UAVListItem[]>([])
   const [lightConfig, setLightConfig] = useState<FormationLightConfig>({
     red: 0,
@@ -351,6 +363,7 @@ const FormationMonitor: React.FC = () => {
     effect: LightEffect.STATIC
   })
   const [lightEnabled, setLightEnabled] = useState(false)
+  const [missionList, setMissionList] = useState<{ id: string; name: string }[]>([])
 
   useEffect(() => {
     dispatch(fetchFormationList({ page: 1, pageSize: 20 }))
@@ -365,6 +378,17 @@ const FormationMonitor: React.FC = () => {
       console.error('Failed to load UAV list:', error)
     }
   }
+
+  useEffect(() => {
+    if (wsClient && wsConnected && selectedFormationId) {
+      subscribeToFormation(wsClient, selectedFormationId)
+      return () => {
+        if (wsClient) {
+          unsubscribeFromFormation(wsClient, selectedFormationId)
+        }
+      }
+    }
+  }, [wsClient, wsConnected, selectedFormationId])
 
   const handleFormationSelect = (value: string) => {
     dispatch(selectFormation(value))
@@ -429,6 +453,32 @@ const FormationMonitor: React.FC = () => {
       message.success('灯光配置已下发')
     } catch (error) {
       message.error('灯光配置下发失败')
+    }
+  }
+
+  const handleSyncWaypoints = async () => {
+    if (!selectedFormationId) return
+    try {
+      const values = await syncForm.validateFields()
+      await syncFormationWaypoints(selectedFormationId, values.missionId)
+      message.success('航点同步已下发')
+      setSyncWaypointModalVisible(false)
+      syncForm.resetFields()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '航点同步失败')
+    }
+  }
+
+  const handleMultiTakeoff = async () => {
+    if (!selectedFormationId) return
+    try {
+      const values = await takeoffForm.validateFields()
+      await multiTakeoff(selectedFormationId, values.altitude || 5)
+      message.success('多机起飞指令已下发')
+      setTakeoffModalVisible(false)
+      takeoffForm.resetFields()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '多机起飞失败')
     }
   }
 
@@ -498,7 +548,7 @@ const FormationMonitor: React.FC = () => {
     return positions
   }, [currentFormation])
 
-  const collisionWarnings = useMemo(() => {
+  const collisionWarningItems = useMemo(() => {
     if (!currentFormation?.members) return []
     const warnings: { id: string; uav1: string; uav2: string; distance: number; level: string }[] = []
 
@@ -521,8 +571,25 @@ const FormationMonitor: React.FC = () => {
         }
       }
     }
+
+    for (const ws of collisionWarnings.slice(0, 10)) {
+      const exists = warnings.find(w =>
+        (w.uav1 === String(ws.uavId1) && w.uav2 === String(ws.uavId2)) ||
+        (w.uav1 === String(ws.uavId2) && w.uav2 === String(ws.uavId1))
+      )
+      if (!exists) {
+        warnings.push({
+          id: ws.id,
+          uav1: String(ws.uavId1),
+          uav2: String(ws.uavId2),
+          distance: ws.distance,
+          level: ws.warningLevel
+        })
+      }
+    }
+
     return warnings
-  }, [currentFormation])
+  }, [currentFormation, collisionWarnings])
 
   const memberColumns = [
     {
@@ -578,6 +645,9 @@ const FormationMonitor: React.FC = () => {
               value: f.id
             }))}
           />
+          {wsConnected && (
+            <Badge status="success" text={<span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>实时连接</span>} />
+          )}
         </HeaderLeft>
         <HeaderRight>
           {currentFormation && (
@@ -623,6 +693,26 @@ const FormationMonitor: React.FC = () => {
                   <Button danger icon={<StopOutlined />} onClick={handleStop}>
                     停止
                   </Button>
+                )}
+                {currentFormation && (
+                  <>
+                    <Button
+                      icon={<SendOutlined />}
+                      onClick={() => setSyncWaypointModalVisible(true)}
+                      disabled={!currentFormation}
+                    >
+                      航点同步
+                    </Button>
+                    <Button
+                      type="primary"
+                      icon={<ThunderboltOutlined />}
+                      onClick={() => setTakeoffModalVisible(true)}
+                      disabled={!currentFormation}
+                      style={{ background: '#722ed1', borderColor: '#722ed1' }}
+                    >
+                      多机起飞
+                    </Button>
+                  </>
                 )}
               </Space>
             }
@@ -682,6 +772,16 @@ const FormationMonitor: React.FC = () => {
               <InfoLabel>位置误差</InfoLabel>
               <InfoValue>
                 <Tag color="green">&lt; 0.3m</Tag>
+              </InfoValue>
+            </InfoRow>
+            <InfoRow>
+              <InfoLabel>WebSocket</InfoLabel>
+              <InfoValue>
+                <Badge status={wsConnected ? 'success' : 'error'} text={
+                  <span style={{ color: wsConnected ? '#52c41a' : '#ff4d4f', fontSize: 12 }}>
+                    {wsConnected ? '已连接' : '未连接'}
+                  </span>
+                } />
               </InfoValue>
             </InfoRow>
           </InfoCard>
@@ -750,18 +850,18 @@ const FormationMonitor: React.FC = () => {
               <Space>
                 <WarningOutlined />
                 碰撞预警
-                {collisionWarnings.length > 0 && (
-                  <Badge count={collisionWarnings.length} size="small" />
+                {collisionWarningItems.length > 0 && (
+                  <Badge count={collisionWarningItems.length} size="small" />
                 )}
               </Space>
             }
           >
-            {collisionWarnings.length === 0 ? (
+            {collisionWarningItems.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '16px 0', color: 'rgba(255,255,255,0.5)' }}>
                 暂无碰撞预警
               </div>
             ) : (
-              collisionWarnings.map(warning => (
+              collisionWarningItems.map(warning => (
                 <WarningItem key={warning.id}>
                   <WarningText>
                     {warning.uav1} ↔ {warning.uav2}
@@ -823,6 +923,53 @@ const FormationMonitor: React.FC = () => {
             <Input.TextArea rows={3} placeholder="请输入编队描述" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="航点同步"
+        open={syncWaypointModalVisible}
+        onCancel={() => setSyncWaypointModalVisible(false)}
+        onOk={handleSyncWaypoints}
+        okText="同步"
+        cancelText="取消"
+      >
+        <Form form={syncForm} layout="vertical">
+          <Form.Item
+            label="选择任务"
+            name="missionId"
+            rules={[{ required: true, message: '请选择要同步的任务' }]}
+          >
+            <Select placeholder="请选择任务" showSearch optionFilterProp="label">
+              {missionList.map(m => (
+                <Select.Option key={m.id} value={m.id} label={m.name}>
+                  {m.name}
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+        </Form>
+        <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginTop: 8 }}>
+          将向编队所有成员下发航点指令，各机同时执行
+        </div>
+      </Modal>
+
+      <Modal
+        title="多机一键起飞"
+        open={takeoffModalVisible}
+        onCancel={() => setTakeoffModalVisible(false)}
+        onOk={handleMultiTakeoff}
+        okText="起飞"
+        okButtonProps={{ danger: true }}
+        cancelText="取消"
+      >
+        <Form form={takeoffForm} layout="vertical">
+          <Form.Item label="起飞高度 (米)" name="altitude" initialValue={5}>
+            <InputNumber min={1} max={100} style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+        <div style={{ color: '#faad14', fontSize: 12, marginTop: 8 }}>
+          ⚠ 将向编队所有成员发送起飞指令，请确保所有无人机状态就绪
+        </div>
       </Modal>
     </Container>
   )

@@ -100,6 +100,14 @@ func (h *Hub) removeClientFromSubscriptions(client *Client) {
 			}
 		}
 	}
+	for formationID, clients := range h.formationSubscriptions {
+		for i, c := range clients {
+			if c == client {
+				h.formationSubscriptions[formationID] = append(clients[:i], clients[i+1:]...)
+				break
+			}
+		}
+	}
 }
 
 func (h *Hub) broadcastTelemetry() {

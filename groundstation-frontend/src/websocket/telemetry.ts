@@ -4,7 +4,14 @@ import { updateUAVRealtime, updateUAVStatus, updateUAVBattery, updateUAVMode } f
 import { updateExecutionState, setCurrentWaypoint, setWaypointReached, setMissionStatus } from '@/store/slices/mission'
 import { addAlert } from '@/store/slices/alert'
 import { addViolation } from '@/store/slices/geofence'
+import {
+  updateFormationStatus,
+  updateFormationRealtime,
+  addCollisionWarning,
+  setLightConfig as setFormationLightConfig
+} from '@/store/slices/formation'
 import type { TelemetryData, Alert, GeofenceViolation, UAVStatus, UAVMode } from '@/types'
+import type { FormationCollisionWarning } from '@/types/formation'
 import type WebSocketClient from './client'
 
 export const setupTelemetryHandlers = (wsClient: WebSocketClient, dispatch: Dispatch): void => {
@@ -94,6 +101,40 @@ export const setupTelemetryHandlers = (wsClient: WebSocketClient, dispatch: Disp
     dispatch(addViolation(violation))
   })
 
+  wsClient.on('formation_update', (data: unknown) => {
+    const payload = data as { formation_id: string; [key: string]: unknown }
+    if (payload.formation_id) {
+      dispatch(updateFormationRealtime({
+        id: payload.formation_id,
+        ...payload
+      }))
+    }
+  })
+
+  wsClient.on('formation_status', (data: unknown) => {
+    const { formation_id, status } = data as { formation_id: string; status: string }
+    if (formation_id && status) {
+      dispatch(updateFormationStatus({ id: formation_id, status: status as any }))
+    }
+  })
+
+  wsClient.on('formation_collision_warning', (data: unknown) => {
+    const warning = data as FormationCollisionWarning
+    dispatch(addCollisionWarning(warning))
+  })
+
+  wsClient.on('formation_light', (data: unknown) => {
+    const { light } = data as { light: { red: number; green: number; blue: number; effect: string } }
+    if (light) {
+      dispatch(setFormationLightConfig({
+        red: light.red,
+        green: light.green,
+        blue: light.blue,
+        effect: light.effect as any
+      }))
+    }
+  })
+
   wsClient.on('connect', () => {
     dispatch(setTelemetryConnected(true))
   })
@@ -121,4 +162,12 @@ export const unsubscribeFromAlerts = (wsClient: WebSocketClient): void => {
 
 export const requestTelemetry = (wsClient: WebSocketClient, uavId: string): void => {
   wsClient.send('request_telemetry', { uavId })
+}
+
+export const subscribeToFormation = (wsClient: WebSocketClient, formationId: string): void => {
+  wsClient.send('subscribe_formation', { formation_id: formationId })
+}
+
+export const unsubscribeFromFormation = (wsClient: WebSocketClient, formationId: string): void => {
+  wsClient.send('unsubscribe_formation', { formation_id: formationId })
 }

@@ -58,6 +58,10 @@ func main() {
 		&models.Firmware{},
 		&models.FirmwareUpdate{},
 		&models.BlackboxLog{},
+		&models.Formation{},
+		&models.FormationMember{},
+		&models.FormationLightConfig{},
+		&models.FormationCollisionWarning{},
 	); err != nil {
 		fmt.Printf("Failed to migrate database: %v\n", err)
 		os.Exit(1)
@@ -228,6 +232,28 @@ func main() {
 			blackbox.PUT("/:id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UpdateBlackbox)
 			blackbox.DELETE("/:id", middleware.RoleAuth(models.UserRoleAdmin), handler.DeleteBlackbox)
 			blackbox.GET("/:id/download", handler.DownloadBlackbox)
+		}
+
+		formation := api.Group("/formations", middleware.JWTAuth())
+		{
+			formation.POST("", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.CreateFormation)
+			formation.GET("", handler.ListFormations)
+			formation.GET("/active", handler.GetActiveFormations)
+			formation.GET("/:id", handler.GetFormation)
+			formation.PUT("/:id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UpdateFormation)
+			formation.DELETE("/:id", middleware.RoleAuth(models.UserRoleAdmin), handler.DeleteFormation)
+			formation.GET("/:id/members", handler.GetFormationMembers)
+			formation.POST("/:id/members", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.AddFormationMember)
+			formation.DELETE("/:id/members/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.RemoveFormationMember)
+			formation.POST("/:id/leader/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SetFormationLeader)
+			formation.POST("/:id/start", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StartFormation)
+			formation.POST("/:id/pause", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.PauseFormation)
+			formation.POST("/:id/resume", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ResumeFormation)
+			formation.POST("/:id/stop", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StopFormation)
+			formation.GET("/:id/collisions", handler.GetCollisionWarnings)
+			formation.POST("/:id/light", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SetFormationLight)
+			formation.POST("/:id/sync-waypoints", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SyncFormationWaypoints)
+			formation.POST("/:id/takeoff", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.MultiTakeoff)
 		}
 
 		metrics := api.Group("/metrics")

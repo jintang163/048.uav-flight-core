@@ -9,6 +9,7 @@
 #include "task_mavlink_comm.h"
 #include "task_mission.h"
 #include "task_health_monitor.h"
+#include "task_formation.h"
 
 I2C_HandleTypeDef hi2c1;
 TIM_HandleTypeDef htim1;
@@ -56,6 +57,7 @@ int main(void)
     task_mavlink_comm_init();
     task_mission_init();
     task_health_monitor_init();
+    task_formation_init();
 
     vTaskStartScheduler();
 

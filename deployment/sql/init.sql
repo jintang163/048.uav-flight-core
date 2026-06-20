@@ -257,3 +257,82 @@ INSERT INTO `geofences` (`name`, `type`, `shape`, `center_latitude`, `center_lon
 ON DUPLICATE KEY UPDATE `name` = `name`;
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+-- ======================================
+-- 编队表
+-- ======================================
+CREATE TABLE IF NOT EXISTS `formations` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `uuid` VARCHAR(36) NOT NULL COMMENT '编队唯一标识',
+  `name` VARCHAR(100) NOT NULL COMMENT '编队名称',
+  `type` VARCHAR(20) NOT NULL DEFAULT 'line' COMMENT '队形类型:line,triangle,circle',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'idle' COMMENT '状态:idle,ready,executing,paused,completed',
+  `leader_id` BIGINT UNSIGNED DEFAULT NULL COMMENT '长机UAV ID',
+  `spacing` DECIMAL(8,2) DEFAULT 5.00 COMMENT '编队间距(米)',
+  `description` TEXT COMMENT '描述',
+  `owner_id` BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_uuid` (`uuid`),
+  KEY `idx_status` (`status`),
+  KEY `idx_owner_id` (`owner_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='编队表';
+
+-- ======================================
+-- 编队成员表
+-- ======================================
+CREATE TABLE IF NOT EXISTS `formation_members` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `formation_id` BIGINT UNSIGNED NOT NULL COMMENT '编队ID',
+  `uav_id` BIGINT UNSIGNED NOT NULL COMMENT '无人机ID',
+  `position_index` INT DEFAULT 0 COMMENT '位置序号',
+  `offset_x` DECIMAL(10,3) DEFAULT 0.000 COMMENT 'X偏移(米)',
+  `offset_y` DECIMAL(10,3) DEFAULT 0.000 COMMENT 'Y偏移(米)',
+  `offset_z` DECIMAL(10,3) DEFAULT 0.000 COMMENT 'Z偏移(米)',
+  `is_leader` TINYINT DEFAULT 0 COMMENT '是否长机',
+  `status` VARCHAR(20) DEFAULT 'idle' COMMENT '成员状态',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_formation_id` (`formation_id`),
+  KEY `idx_uav_id` (`uav_id`),
+  CONSTRAINT `fk_fm_formation` FOREIGN KEY (`formation_id`) REFERENCES `formations` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='编队成员表';
+
+-- ======================================
+-- 编队灯光配置表
+-- ======================================
+CREATE TABLE IF NOT EXISTS `formation_light_configs` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(100) NOT NULL COMMENT '配置名称',
+  `red` TINYINT UNSIGNED DEFAULT 0 COMMENT '红色通道',
+  `green` TINYINT UNSIGNED DEFAULT 0 COMMENT '绿色通道',
+  `blue` TINYINT UNSIGNED DEFAULT 0 COMMENT '蓝色通道',
+  `effect` VARCHAR(20) DEFAULT 'static' COMMENT '灯效:static,blink,rainbow,breathing',
+  `owner_id` BIGINT UNSIGNED DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='编队灯光配置表';
+
+-- ======================================
+-- 编队碰撞预警表
+-- ======================================
+CREATE TABLE IF NOT EXISTS `formation_collision_warnings` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `formation_id` BIGINT UNSIGNED NOT NULL COMMENT '编队ID',
+  `uav_id_1` BIGINT UNSIGNED NOT NULL COMMENT '无人机1 ID',
+  `uav_id_2` BIGINT UNSIGNED NOT NULL COMMENT '无人机2 ID',
+  `distance` DECIMAL(10,3) DEFAULT NULL COMMENT '实时距离(米)',
+  `warning_level` VARCHAR(20) DEFAULT 'warning' COMMENT '预警级别:warning,critical',
+  `timestamp` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发生时间',
+  `resolved` TINYINT DEFAULT 0 COMMENT '是否已解决',
+  `resolved_at` DATETIME DEFAULT NULL COMMENT '解决时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_formation_id` (`formation_id`),
+  KEY `idx_timestamp` (`timestamp`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='编队碰撞预警表';

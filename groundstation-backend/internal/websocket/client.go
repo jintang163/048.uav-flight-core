@@ -268,6 +268,30 @@ func (c *Client) handleMessage(rawMessage []byte) {
 			handler.RequestUAVTelemetry(uavID)
 		}
 
+	case "subscribe_formation":
+		var formationPayload struct {
+			FormationID uint64 `json:"formation_id"`
+		}
+		if len(rawData) > 0 {
+			json.Unmarshal(rawData, &formationPayload)
+		}
+		if formationPayload.FormationID > 0 {
+			c.hub.SubscribeFormation(c, formationPayload.FormationID)
+			c.hub.SendToClient(c, "subscribed_formation", gin.H{"formation_id": formationPayload.FormationID})
+		}
+
+	case "unsubscribe_formation":
+		var formationPayload struct {
+			FormationID uint64 `json:"formation_id"`
+		}
+		if len(rawData) > 0 {
+			json.Unmarshal(rawData, &formationPayload)
+		}
+		if formationPayload.FormationID > 0 {
+			c.hub.UnsubscribeFormation(c, formationPayload.FormationID)
+			c.hub.SendToClient(c, "unsubscribed_formation", gin.H{"formation_id": formationPayload.FormationID})
+		}
+
 	default:
 		c.hub.SendToClient(c, "error", "未知的消息类型: "+msgType)
 	}

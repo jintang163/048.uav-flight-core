@@ -349,3 +349,28 @@ func SyncFormationWaypoints(c *gin.Context) {
 
 	utils.SuccessResponse(c, "航点同步已下发", nil)
 }
+
+func MultiTakeoff(c *gin.Context) {
+	id, err := utils.ParseUint64(c.Param("id"))
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "无效的编队ID", nil)
+		return
+	}
+
+	var req struct {
+		Altitude float64 `json:"altitude"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		req.Altitude = 5.0
+	}
+	if req.Altitude <= 0 {
+		req.Altitude = 5.0
+	}
+
+	if err := formationService.MultiTakeoff(id, req.Altitude); err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400002, err.Error(), nil)
+		return
+	}
+
+	utils.SuccessResponse(c, "多机起飞指令已下发", nil)
+}

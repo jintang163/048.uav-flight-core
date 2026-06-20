@@ -93,3 +93,10 @@ export const syncFormationWaypoints = (
 ): Promise<void> => {
   return post<void>(`/formations/${id}/sync-waypoints`, { mission_id: missionId })
 }
+
+export const multiTakeoff = (
+  id: string,
+  altitude?: number
+): Promise<void> => {
+  return post<void>(`/formations/${id}/takeoff`, { altitude: altitude || 5.0 })
+}
