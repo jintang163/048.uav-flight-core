@@ -336,3 +336,70 @@ CREATE TABLE IF NOT EXISTS `formation_collision_warnings` (
   KEY `idx_formation_id` (`formation_id`),
   KEY `idx_timestamp` (`timestamp`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='编队碰撞预警表';
+
+-- ======================================
+-- AI目标检测结果表
+-- ======================================
+CREATE TABLE IF NOT EXISTS `detection_targets` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `uav_id` BIGINT UNSIGNED NOT NULL COMMENT '无人机ID',
+  `class` VARCHAR(32) NOT NULL COMMENT '目标类别:person,car,truck,bus,motorcycle,bicycle,dog,unknown',
+  `class_name` VARCHAR(64) DEFAULT NULL COMMENT '类别中文名',
+  `confidence` DECIMAL(5,4) DEFAULT NULL COMMENT '识别置信度',
+  `bbox_x` DECIMAL(8,4) DEFAULT NULL COMMENT '边界框左上角X(像素)',
+  `bbox_y` DECIMAL(8,4) DEFAULT NULL COMMENT '边界框左上角Y(像素)',
+  `bbox_width` DECIMAL(8,4) DEFAULT NULL COMMENT '边界框宽度(像素)',
+  `bbox_height` DECIMAL(8,4) DEFAULT NULL COMMENT '边界框高度(像素)',
+  `frame_width` INT DEFAULT NULL COMMENT '画面宽度(像素)',
+  `frame_height` INT DEFAULT NULL COMMENT '画面高度(像素)',
+  `latitude` DECIMAL(10,7) DEFAULT NULL COMMENT '检测时无人机纬度',
+  `longitude` DECIMAL(10,7) DEFAULT NULL COMMENT '检测时无人机经度',
+  `altitude` DECIMAL(8,2) DEFAULT NULL COMMENT '检测时无人机高度(米)',
+  `image_path` VARCHAR(512) DEFAULT NULL COMMENT '检测截图路径',
+  `track_id` VARCHAR(64) DEFAULT NULL COMMENT '追踪ID',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `deleted_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_uav_id` (`uav_id`),
+  KEY `idx_class` (`class`),
+  KEY `idx_track_id` (`track_id`),
+  KEY `idx_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI目标检测结果表';
+
+-- ======================================
+-- 目标追踪任务表
+-- ======================================
+CREATE TABLE IF NOT EXISTS `tracking_tasks` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `uav_id` BIGINT UNSIGNED NOT NULL COMMENT '无人机ID',
+  `name` VARCHAR(128) DEFAULT NULL COMMENT '追踪任务名称',
+  `target_class` VARCHAR(32) DEFAULT NULL COMMENT '目标类别',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'idle' COMMENT '状态:idle,locking,tracking,searching,lost,completed',
+  `initial_bbox_x` DECIMAL(8,4) DEFAULT NULL COMMENT '初始框左上角X(像素)',
+  `initial_bbox_y` DECIMAL(8,4) DEFAULT NULL COMMENT '初始框左上角Y(像素)',
+  `initial_bbox_width` DECIMAL(8,4) DEFAULT NULL COMMENT '初始框宽度(像素)',
+  `initial_bbox_height` DECIMAL(8,4) DEFAULT NULL COMMENT '初始框高度(像素)',
+  `current_bbox_x` DECIMAL(8,4) DEFAULT NULL COMMENT '当前框左上角X(像素)',
+  `current_bbox_y` DECIMAL(8,4) DEFAULT NULL COMMENT '当前框左上角Y(像素)',
+  `current_bbox_width` DECIMAL(8,4) DEFAULT NULL COMMENT '当前框宽度(像素)',
+  `current_bbox_height` DECIMAL(8,4) DEFAULT NULL COMMENT '当前框高度(像素)',
+  `center_offset_x` DECIMAL(8,4) DEFAULT NULL COMMENT '目标中心相对画面中心X偏移(归一化)',
+  `center_offset_y` DECIMAL(8,4) DEFAULT NULL COMMENT '目标中心相对画面中心Y偏移(归一化)',
+  `search_radius` DECIMAL(8,2) NOT NULL DEFAULT 10.0 COMMENT '当前搜索半径(米)',
+  `max_search_radius` DECIMAL(8,2) NOT NULL DEFAULT 50.0 COMMENT '最大搜索半径(米)',
+  `confidence` DECIMAL(5,4) DEFAULT NULL COMMENT '当前识别置信度',
+  `frames_visible` INT NOT NULL DEFAULT 0 COMMENT '目标连续可见帧数',
+  `frames_lost` INT NOT NULL DEFAULT 0 COMMENT '目标连续丢失帧数',
+  `target_latitude` DECIMAL(10,7) DEFAULT NULL COMMENT '目标估算纬度',
+  `target_longitude` DECIMAL(10,7) DEFAULT NULL COMMENT '目标估算经度',
+  `start_time` DATETIME DEFAULT NULL COMMENT '追踪开始时间',
+  `end_time` DATETIME DEFAULT NULL COMMENT '追踪结束时间',
+  `created_by` BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_uav_id` (`uav_id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='目标追踪任务表';

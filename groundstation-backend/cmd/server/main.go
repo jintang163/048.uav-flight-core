@@ -62,6 +62,8 @@ func main() {
 		&models.FormationMember{},
 		&models.FormationLightConfig{},
 		&models.FormationCollisionWarning{},
+		&models.DetectionTarget{},
+		&models.TrackingTask{},
 	); err != nil {
 		fmt.Printf("Failed to migrate database: %v\n", err)
 		os.Exit(1)
@@ -254,6 +256,17 @@ func main() {
 			formation.POST("/:id/light", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SetFormationLight)
 			formation.POST("/:id/sync-waypoints", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SyncFormationWaypoints)
 			formation.POST("/:id/takeoff", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.MultiTakeoff)
+		}
+
+		tracking := api.Group("/tracking", middleware.JWTAuth())
+		{
+			tracking.POST("/lock", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.LockTarget)
+			tracking.POST("/:id/stop", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StopTracking)
+			tracking.GET("", handler.ListTrackingTasks)
+			tracking.GET("/:id", handler.GetTrackingTask)
+			tracking.GET("/uav/:uav_id/active", handler.GetActiveTracking)
+			tracking.GET("/uav/:uav_id/detections", handler.ListDetections)
+			tracking.POST("/uav/:uav_id/detect", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.DetectImage)
 		}
 
 		metrics := api.Group("/metrics")

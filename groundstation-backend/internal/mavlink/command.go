@@ -380,6 +380,12 @@ func (m *CommandManager) SendCommand(uavID uint64, data []byte) error {
 	return err
 }
 
+func (m *CommandManager) SendCustomCommand(uavID uint64, commandName string, params map[string]interface{}) error {
+	encoder := NewMAVLinkEncoder()
+	data := encoder.EncodeCommandLong(0, uavID, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+	return m.SendCommand(uavID, data)
+}
+
 func (m *CommandManager) generateUAVID(addr string) uint64 {
 	hash := uint64(0)
 	for _, b := range addr {

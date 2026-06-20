@@ -10,7 +10,11 @@ import {
   addCollisionWarning,
   setLightConfig as setFormationLightConfig
 } from '@/store/slices/formation'
-import type { TelemetryData, Alert, GeofenceViolation, UAVStatus, UAVMode } from '@/types'
+import {
+  updateDetections,
+  updateActiveTask
+} from '@/store/slices/tracking'
+import type { TelemetryData, Alert, GeofenceViolation, UAVStatus, UAVMode, DetectionTarget, TrackingTask } from '@/types'
 import type { FormationCollisionWarning } from '@/types/formation'
 import type WebSocketClient from './client'
 
@@ -135,6 +139,20 @@ export const setupTelemetryHandlers = (wsClient: WebSocketClient, dispatch: Disp
     }
   })
 
+  wsClient.on('detections_update', (data: unknown) => {
+    const { detections } = data as { detections: DetectionTarget[] }
+    if (detections && Array.isArray(detections)) {
+      dispatch(updateDetections(detections))
+    }
+  })
+
+  wsClient.on('tracking_update', (data: unknown) => {
+    const { tracking_task } = data as { tracking_task: TrackingTask }
+    if (tracking_task) {
+      dispatch(updateActiveTask(tracking_task))
+    }
+  })
+
   wsClient.on('connect', () => {
     dispatch(setTelemetryConnected(true))
   })
@@ -170,4 +188,12 @@ export const subscribeToFormation = (wsClient: WebSocketClient, formationId: str
 
 export const unsubscribeFromFormation = (wsClient: WebSocketClient, formationId: string): void => {
   wsClient.send('unsubscribe_formation', { formation_id: formationId })
+}
+
+export const subscribeToTracking = (wsClient: WebSocketClient, uavId: string): void => {
+  wsClient.send('subscribe_uav', { uavId: uavId })
+}
+
+export const unsubscribeFromTracking = (wsClient: WebSocketClient, uavId: string): void => {
+  wsClient.send('unsubscribe_uav', { uavId: uavId })
 }

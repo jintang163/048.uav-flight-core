@@ -45,6 +45,7 @@ $(CORE_DIR)/Src/mavlink_handler.c \
 $(CORE_DIR)/Src/motor_control.c \
 $(CORE_DIR)/Src/attitude_estimator.c \
 $(CORE_DIR)/Src/formation_manager.c \
+$(CORE_DIR)/Src/tracking_manager.c \
 $(CORE_DIR)/Src/stm32f4xx_it.c \
 $(CORE_DIR)/Src/stm32f4xx_hal_msp.c \
 $(CORE_DIR)/Src/system_stm32f4xx.c \
@@ -62,6 +63,7 @@ $(APP_DIR)/Tasks/task_mission.c \
 $(APP_DIR)/Tasks/task_motor_control.c \
 $(APP_DIR)/Tasks/task_health_monitor.c \
 $(APP_DIR)/Tasks/task_formation.c \
+$(APP_DIR)/Tasks/task_tracking.c \
 \
 $(APP_DIR)/Drivers/mpu6050.c \
 $(APP_DIR)/Drivers/gps_ublox.c \

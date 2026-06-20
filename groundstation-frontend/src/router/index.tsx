@@ -28,6 +28,7 @@ const AlertCenter = lazy(() => import('@/pages/AlertCenter'))
 const Firmware = lazy(() => import('@/pages/Firmware'))
 const Settings = lazy(() => import('@/pages/Settings'))
 const Formation = lazy(() => import('@/pages/Formation'))
+const AIVisual = lazy(() => import('@/pages/AIVisual'))
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAppSelector(state => state.auth)
@@ -119,6 +120,14 @@ const routes: RouteObject[] = [
         element: (
           <Suspense fallback={<Loading />}>
             <Formation />
+          </Suspense>
+        )
+      },
+      {
+        path: 'ai-vision',
+        element: (
+          <Suspense fallback={<Loading />}>
+            <AIVisual />
           </Suspense>
         )
       },

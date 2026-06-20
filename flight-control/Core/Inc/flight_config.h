@@ -13,6 +13,7 @@
 #define TASK_MAVLINK_COMM_FREQ        50
 #define TASK_MISSION_FREQ             20
 #define TASK_FORMATION_FREQ           20
+#define TASK_TRACKING_FREQ            20
 #define TASK_MOTOR_CONTROL_FREQ       400
 #define TASK_HEALTH_MONITOR_FREQ      10
 
@@ -22,6 +23,7 @@
 #define TASK_MAVLINK_COMM_STACK_SIZE        1024
 #define TASK_MISSION_STACK_SIZE             512
 #define TASK_FORMATION_STACK_SIZE           512
+#define TASK_TRACKING_STACK_SIZE            512
 #define TASK_MOTOR_CONTROL_STACK_SIZE       256
 #define TASK_HEALTH_MONITOR_STACK_SIZE      256
 
@@ -31,6 +33,7 @@
 #define TASK_MAVLINK_COMM_PRIORITY        3
 #define TASK_MISSION_PRIORITY             4
 #define TASK_FORMATION_PRIORITY           4
+#define TASK_TRACKING_PRIORITY            4
 #define TASK_MOTOR_CONTROL_PRIORITY       5
 #define TASK_HEALTH_MONITOR_PRIORITY      2
 

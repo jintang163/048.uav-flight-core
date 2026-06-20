@@ -8,15 +8,17 @@ import (
 )
 
 type Config struct {
-	Server    ServerConfig    `mapstructure:"server"`
-	Database  DatabaseConfig  `mapstructure:"database"`
-	Redis     RedisConfig     `mapstructure:"redis"`
-	NSQ       NSQConfig       `mapstructure:"nsq"`
-	JWT       JWTConfig       `mapstructure:"jwt"`
-	MAVLink   MAVLinkConfig   `mapstructure:"mavlink"`
-	WebSocket WebSocketConfig `mapstructure:"websocket"`
-	MinIO     MinIOConfig     `mapstructure:"minio"`
-	Alert     AlertConfig     `mapstructure:"alert"`
+	Server     ServerConfig     `mapstructure:"server"`
+	Database   DatabaseConfig   `mapstructure:"database"`
+	Redis      RedisConfig      `mapstructure:"redis"`
+	NSQ        NSQConfig        `mapstructure:"nsq"`
+	JWT        JWTConfig        `mapstructure:"jwt"`
+	MAVLink    MAVLinkConfig    `mapstructure:"mavlink"`
+	WebSocket  WebSocketConfig  `mapstructure:"websocket"`
+	MinIO      MinIOConfig      `mapstructure:"minio"`
+	Alert      AlertConfig      `mapstructure:"alert"`
+	YOLOv8API  string           `mapstructure:"yolov8_api"`
+	YOLOv8APIKey string        `mapstructure:"yolov8_api_key"`
 }
 
 type ServerConfig struct {

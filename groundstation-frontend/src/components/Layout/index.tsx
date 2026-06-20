@@ -31,7 +31,8 @@ import {
   NotificationOutlined,
   BulbOutlined,
   SunOutlined,
-  TeamOutlined
+  TeamOutlined,
+  ScanOutlined
 } from '@ant-design/icons'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '@/store'
@@ -271,6 +272,11 @@ const MainLayout: React.FC = () => {
       label: '编队控制'
     },
     {
+      key: 'ai-vision',
+      icon: <ScanOutlined />,
+      label: 'AI视觉追踪'
+    },
+    {
       key: 'alert-center',
       icon: <BellOutlined />,
       label: '告警中心'
@@ -332,6 +338,8 @@ const MainLayout: React.FC = () => {
     'uav-list': '无人机列表',
     'flight-history': '飞行记录',
     'geofence': '电子围栏',
+    'formation': '编队控制',
+    'ai-vision': 'AI视觉追踪',
     'alert-center': '告警中心',
     'firmware': '固件管理',
     'settings': '系统设置'

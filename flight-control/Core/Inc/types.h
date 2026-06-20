@@ -53,7 +53,8 @@ typedef enum {
     FLIGHT_MODE_AUTO = 3,
     FLIGHT_MODE_RTL = 4,
     FLIGHT_MODE_LAND = 5,
-    FLIGHT_MODE_FORMATION = 6
+    FLIGHT_MODE_FORMATION = 6,
+    FLIGHT_MODE_TRACKING = 7
 } FlightMode;
 
 typedef enum {
@@ -206,5 +207,49 @@ typedef struct {
 #define LIGHT_EFFECT_BLINK 1
 #define LIGHT_EFFECT_RAINBOW 2
 #define LIGHT_EFFECT_BREATHING 3
+
+typedef enum {
+    TRACKING_STATE_IDLE = 0,
+    TRACKING_STATE_LOCKING = 1,
+    TRACKING_STATE_TRACKING = 2,
+    TRACKING_STATE_SEARCHING = 3,
+    TRACKING_STATE_LOST = 4
+} TrackingState;
+
+typedef struct {
+    float bbox_x;
+    float bbox_y;
+    float bbox_width;
+    float bbox_height;
+    float center_offset_x;
+    float center_offset_y;
+    float confidence;
+    uint32_t last_update;
+    bool valid;
+} DetectionTarget;
+
+typedef struct {
+    TrackingState state;
+    DetectionTarget current_target;
+    float search_radius;
+    float max_search_radius;
+    uint16_t frames_visible;
+    uint16_t frames_lost;
+    float target_latitude;
+    float target_longitude;
+    float velocity_n;
+    float velocity_e;
+    float yaw_rate;
+    bool searching;
+    uint32_t start_time;
+} TrackingData;
+
+#define TRACKING_DEFAULT_SEARCH_RADIUS 10.0f
+#define TRACKING_MAX_SEARCH_RADIUS 50.0f
+#define TRACKING_FRAMES_TO_LOCK 10
+#define TRACKING_FRAMES_TO_SEARCH 15
+#define TRACKING_FRAMES_TO_LOST 60
+#define TRACKING_CENTER_TOLERANCE 0.05f
+#define TRACKING_MAX_VELOCITY 3.0f
 
 #endif
