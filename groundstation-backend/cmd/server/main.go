@@ -52,6 +52,8 @@ func main() {
 		&models.FlightMission{},
 		&models.Geofence{},
 		&models.GeofenceCoordinate{},
+		&models.GeofenceViolationLog{},
+		&models.TemporaryUnlocking{},
 		&models.AlertEvent{},
 		&models.Firmware{},
 		&models.FirmwareUpdate{},
@@ -166,6 +168,26 @@ func main() {
 			geofence.DELETE("/:id", middleware.RoleAuth(models.UserRoleAdmin), handler.DeleteGeofence)
 			geofence.GET("/uav/:uav_id", handler.GetUAVGeofences)
 			geofence.GET("/uav/:uav_id/check", handler.CheckViolation)
+		}
+
+		violation := api.Group("/geofence-violations", middleware.JWTAuth())
+		{
+			violation.GET("", handler.ListViolations)
+			violation.GET("/statistics", handler.GetViolationStatistics)
+			violation.GET("/:id", handler.GetViolation)
+			violation.POST("/:id/resolve", handler.ResolveViolation)
+			violation.POST("/batch/resolve", handler.BatchResolveViolations)
+		}
+
+		unlocking := api.Group("/temporary-unlockings", middleware.JWTAuth())
+		{
+			unlocking.POST("", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ApplyUnlocking)
+			unlocking.GET("", handler.ListUnlockings)
+			unlocking.GET("/:id", handler.GetUnlocking)
+			unlocking.POST("/:id/approve", middleware.RoleAuth(models.UserRoleAdmin), handler.ApproveUnlocking)
+			unlocking.POST("/:id/reject", middleware.RoleAuth(models.UserRoleAdmin), handler.RejectUnlocking)
+			unlocking.POST("/:id/cancel", handler.CancelUnlocking)
+			unlocking.GET("/uav/:uav_id/active", handler.GetActiveUnlockings)
 		}
 
 		alert := api.Group("/alerts", middleware.JWTAuth())

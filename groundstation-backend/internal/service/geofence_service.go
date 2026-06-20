@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"groundstation-backend/internal/mavlink"
 	"groundstation-backend/internal/models"
 	"groundstation-backend/internal/repository"
 	"groundstation-backend/pkg/utils"
@@ -10,61 +11,83 @@ import (
 )
 
 type GeofenceService struct {
-	geofenceRepo *repository.GeofenceRepository
-	alertRepo     *repository.AlertRepository
+	geofenceRepo      *repository.GeofenceRepository
+	violationRepo     *repository.GeofenceViolationRepository
+	unlockingRepo     *repository.TemporaryUnlockingRepository
+	alertRepo         *repository.AlertRepository
+	uavRepo           *repository.UAVRepository
+	cache             *GeofenceCacheService
 }
 
 func NewGeofenceService() *GeofenceService {
 	return &GeofenceService{
-		geofenceRepo: repository.NewGeofenceRepository(),
+		geofenceRepo:  repository.NewGeofenceRepository(),
+		violationRepo: repository.NewGeofenceViolationRepository(),
+		unlockingRepo: repository.NewTemporaryUnlockingRepository(),
 		alertRepo:     repository.NewAlertRepository(),
+		uavRepo:       repository.NewUAVRepository(),
+		cache:         NewGeofenceCacheService(),
 	}
 }
 
-type CreateGeofenceRequest struct {
-	Name        string               `json:"name" binding:"required"`
-	Description string               `json:"description"`
-	Type        models.GeofenceType `json:"type" binding:"required"`
-	Shape       models.GeofenceShape `json:"shape" binding:"required"`
-	MaxAltitude float64              `json:"max_altitude"`
-	MinAltitude float64              `json:"min_altitude"`
-	CenterLat   float64              `json:"center_lat"`
-	CenterLng   float64              `json:"center_lng"`
-	Radius      float64              `json:"radius"`
-	Coordinates []models.Coordinate  `json:"coordinates"`
-	IsActive    bool                 `json:"is_active"`
-}
-
 type GeofenceViolation struct {
-	GeofenceID uint64  `json:"geofence_id"`
-	GeofenceName string `json:"geofence_name"`
-	ViolationType string `json:"violation_type"`
-	Distance    float64 `json:"distance"`
+	GeofenceID     uint64  `json:"geofence_id"`
+	GeofenceName   string  `json:"geofence_name"`
+	GeofenceCategory string `json:"geofence_category"`
+	ViolationType  string  `json:"violation_type"`
+	Severity       string  `json:"severity"`
+	Distance       float64 `json:"distance"`
+	Action         string  `json:"action"`
 }
 
-func (s *GeofenceService) Create(req *CreateGeofenceRequest, creatorID uint64) (*models.Geofence, error) {
-	coordsJSON, _ := json.Marshal(req.Coordinates)
+func (s *GeofenceService) Create(geofence *models.Geofence, coords [][]float64, uavIDs []uint64) (*models.Geofence, error) {
+	if geofence.Shape == models.GeofenceShapePolygon && len(coords) < 3 {
+		return nil, errors.New("polygon geofence requires at least 3 coordinates")
+	}
+	if geofence.Shape == models.GeofenceShapeCircle && geofence.Radius <= 0 {
+		return nil, errors.New("circle geofence requires radius")
+	}
 
-	geofence := &models.Geofence{
-		Name:        req.Name,
-		Description: req.Description,
-		Type:        req.Type,
-		Shape:       req.Shape,
-		CreatorID:   creatorID,
-		IsActive:    req.IsActive,
-		MaxAltitude: req.MaxAltitude,
-		MinAltitude: req.MinAltitude,
-		CenterLat:   req.CenterLat,
-		CenterLng:   req.CenterLng,
-		Radius:      req.Radius,
-		Coordinates: string(coordsJSON),
+	if geofence.MaxAltitude <= 0 {
+		geofence.MaxAltitude = 120
+	}
+	if geofence.MaxDistance <= 0 {
+		geofence.MaxDistance = 500
+	}
+
+	coordinateList := make([]models.Coordinate, len(coords))
+	for i, c := range coords {
+		if len(c) >= 2 {
+			coordinateList[i] = models.Coordinate{Lat: c[0], Lng: c[1]}
+		}
+	}
+
+	if len(coordinateList) > 0 {
+		coordsJSON, _ := json.Marshal(coordinateList)
+		geofence.Coordinates = string(coordsJSON)
+	}
+
+	if geofence.Source == "" {
+		geofence.Source = models.GeofenceSourceUser
+	}
+	if geofence.Category == "" {
+		geofence.Category = models.GeofenceCategoryCustom
+	}
+	if geofence.FailAction == "" {
+		geofence.FailAction = models.FailActionWarn
 	}
 
 	if err := s.geofenceRepo.Create(geofence); err != nil {
 		return nil, err
 	}
 
-	return geofence, nil
+	for _, uavID := range uavIDs {
+		_ = s.geofenceRepo.AssignUAV(geofence.ID, uavID)
+	}
+
+	s.cache.Refresh()
+
+	return s.geofenceRepo.FindByID(geofence.ID)
 }
 
 func (s *GeofenceService) GetByID(id uint64) (*models.Geofence, error) {
@@ -75,53 +98,89 @@ func (s *GeofenceService) GetByUUID(uuid string) (*models.Geofence, error) {
 	return s.geofenceRepo.FindByUUID(uuid)
 }
 
-func (s *GeofenceService) List(pagination *utils.Pagination, gfType models.GeofenceType, isActive *bool) ([]models.Geofence, int64, error) {
-	return s.geofenceRepo.List(pagination, gfType, isActive)
+func (s *GeofenceService) List(pagination *utils.Pagination, gfType string, isActiveStr string, category string, source string) ([]models.Geofence, int64, error) {
+	var isActive *bool
+	if isActiveStr != "" {
+		b := isActiveStr == "true" || isActiveStr == "1"
+		isActive = &b
+	}
+	return s.geofenceRepo.ListFiltered(pagination, models.GeofenceType(gfType), isActive, models.GeofenceCategory(category), models.GeofenceSource(source))
 }
 
-func (s *GeofenceService) Update(id uint64, req *CreateGeofenceRequest) (*models.Geofence, error) {
-	geofence, err := s.geofenceRepo.FindByID(id)
+func (s *GeofenceService) Update(id uint64, geofence *models.Geofence, coords [][]float64, uavIDs []uint64) (*models.Geofence, error) {
+	existing, err := s.geofenceRepo.FindByID(id)
 	if err != nil {
 		return nil, errors.New("geofence not found")
 	}
 
-	if req.Name != "" {
-		geofence.Name = req.Name
+	if geofence.Name != "" {
+		existing.Name = geofence.Name
 	}
-	if req.Description != "" {
-		geofence.Description = req.Description
+	if geofence.Description != "" {
+		existing.Description = geofence.Description
 	}
-	if req.Type != "" {
-		geofence.Type = req.Type
+	if geofence.Type != "" {
+		existing.Type = geofence.Type
 	}
-	if req.Shape != "" {
-		geofence.Shape = req.Shape
+	if geofence.Shape != "" {
+		existing.Shape = geofence.Shape
 	}
-	if req.MaxAltitude > 0 {
-		geofence.MaxAltitude = req.MaxAltitude
+	if geofence.Category != "" {
+		existing.Category = geofence.Category
 	}
-	if req.MinAltitude > 0 {
-		geofence.MinAltitude = req.MinAltitude
+	if geofence.MaxAltitude > 0 {
+		existing.MaxAltitude = geofence.MaxAltitude
 	}
-	if req.CenterLat != 0 {
-		geofence.CenterLat = req.CenterLat
+	if geofence.MinAltitude > 0 {
+		existing.MinAltitude = geofence.MinAltitude
 	}
-	if req.CenterLng != 0 {
-		geofence.CenterLng = req.CenterLng
+	if geofence.MaxDistance > 0 {
+		existing.MaxDistance = geofence.MaxDistance
 	}
-	if req.Radius > 0 {
-		geofence.Radius = req.Radius
+	if geofence.CenterLat != 0 {
+		existing.CenterLat = geofence.CenterLat
 	}
-	if len(req.Coordinates) > 0 {
-		coordsJSON, _ := json.Marshal(req.Coordinates)
-		geofence.Coordinates = string(coordsJSON)
+	if geofence.CenterLng != 0 {
+		existing.CenterLng = geofence.CenterLng
+	}
+	if geofence.Radius > 0 {
+		existing.Radius = geofence.Radius
+	}
+	if geofence.FailAction != "" {
+		existing.FailAction = geofence.FailAction
+	}
+	if geofence.CountryCode != "" {
+		existing.CountryCode = geofence.CountryCode
+	}
+	if geofence.CityName != "" {
+		existing.CityName = geofence.CityName
 	}
 
-	if err := s.geofenceRepo.Update(geofence); err != nil {
+	if len(coords) > 0 {
+		coordinateList := make([]models.Coordinate, len(coords))
+		for i, c := range coords {
+			if len(c) >= 2 {
+				coordinateList[i] = models.Coordinate{Lat: c[0], Lng: c[1]}
+			}
+		}
+		coordsJSON, _ := json.Marshal(coordinateList)
+		existing.Coordinates = string(coordsJSON)
+	}
+
+	if err := s.geofenceRepo.Update(existing); err != nil {
 		return nil, err
 	}
 
-	return geofence, nil
+	if len(uavIDs) > 0 {
+		_ = s.geofenceRepo.ClearUAVs(id)
+		for _, uavID := range uavIDs {
+			_ = s.geofenceRepo.AssignUAV(id, uavID)
+		}
+	}
+
+	s.cache.Refresh()
+
+	return s.geofenceRepo.FindByID(id)
 }
 
 func (s *GeofenceService) Delete(id uint64) error {
@@ -129,7 +188,11 @@ func (s *GeofenceService) Delete(id uint64) error {
 	if err != nil {
 		return errors.New("geofence not found")
 	}
-	return s.geofenceRepo.SoftDelete(&models.Geofence{}, id)
+	err = s.geofenceRepo.SoftDelete(&models.Geofence{}, id)
+	if err == nil {
+		s.cache.Refresh()
+	}
+	return err
 }
 
 func (s *GeofenceService) UpdateStatus(id uint64, isActive bool) error {
@@ -137,7 +200,11 @@ func (s *GeofenceService) UpdateStatus(id uint64, isActive bool) error {
 	if err != nil {
 		return errors.New("geofence not found")
 	}
-	return s.geofenceRepo.UpdateStatus(id, isActive)
+	err = s.geofenceRepo.UpdateStatus(id, isActive)
+	if err == nil {
+		s.cache.Refresh()
+	}
+	return err
 }
 
 func (s *GeofenceService) AssignUAV(geofenceID, uavID uint64) error {
@@ -152,29 +219,66 @@ func (s *GeofenceService) UnassignUAV(geofenceID, uavID uint64) error {
 	return s.geofenceRepo.UnassignUAV(geofenceID, uavID)
 }
 
-func (s *GeofenceService) GetUAVGeofences(uavID uint64) ([]models.Geofence, error) {
+func (s *GeofenceService) GetByUAV(uavID uint64) ([]models.Geofence, error) {
 	return s.geofenceRepo.GetUAVGeofences(uavID)
 }
 
 func (s *GeofenceService) CheckViolation(uavID uint64, lat, lng, altitude float64) ([]GeofenceViolation, error) {
-	geofences, err := s.geofenceRepo.GetUAVGeofences(uavID)
+	geofences, err := s.cache.GetUAVGeofences(uavID)
 	if err != nil {
-		return nil, err
+		geofences, err = s.geofenceRepo.GetUAVGeofences(uavID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var violations []GeofenceViolation
 
 	for _, gf := range geofences {
+		if !gf.IsActive {
+			continue
+		}
+
+		if s.hasActiveUnlock(uavID, gf.ID, gf.Category) {
+			continue
+		}
+
 		violation := s.checkSingleGeofence(&gf, lat, lng, altitude)
 		if violation != nil {
-			violations = append(violations, *violation)
+			severity := models.ViolationSeverityWarning
+			if gf.Category == models.GeofenceCategoryAirport ||
+				gf.Category == models.GeofenceCategoryMilitary ||
+				gf.Category == models.GeofenceCategoryNuclear {
+				severity = models.ViolationSeverityCritical
+			}
+			if gf.FailAction == models.FailActionRTL || gf.FailAction == models.FailActionLand {
+				severity = models.ViolationSeverityFatal
+			}
+
+			action := gf.FailAction
+			s.executeFailAction(uavID, gf, action)
+
+			_, _ = NewGeofenceViolationService().LogViolation(
+				uavID, gf.ID, models.ViolationType(violation.ViolationType),
+				severity, lat, lng, altitude, violation.Distance, action,
+			)
+
+			violations = append(violations, GeofenceViolation{
+				GeofenceID:       gf.ID,
+				GeofenceName:     gf.Name,
+				GeofenceCategory: string(gf.Category),
+				ViolationType:    violation.ViolationType,
+				Severity:         string(severity),
+				Distance:         violation.Distance,
+				Action:           string(action),
+			})
 
 			alert := &models.AlertEvent{
-				UAVID:    uavID,
+				UAVID:     uavID,
 				Type:      models.AlertTypeGeofenceBreach,
-				Level:     models.AlertLevelCritical,
+				Level:     models.AlertLevel(severity),
 				Title:     "电子围栏越界告警",
-				Message:   "无人机越界: " + gf.Name + ", 违规类型: " + violation.ViolationType,
+				Message:   "无人机越界: " + gf.Name + ", 违规类型: " + violation.ViolationType + ", 处置: " + string(action),
 				Latitude:  lat,
 				Longitude: lng,
 				Altitude:  altitude,
@@ -186,22 +290,34 @@ func (s *GeofenceService) CheckViolation(uavID uint64, lat, lng, altitude float6
 	return violations, nil
 }
 
+func (s *GeofenceService) hasActiveUnlock(uavID uint64, geofenceID uint64, category models.GeofenceCategory) bool {
+	unlock, err := s.unlockingRepo.CheckActiveUnlock(uavID, geofenceID)
+	if err == nil && unlock != nil {
+		return true
+	}
+	activeUnlocks, err := s.unlockingRepo.GetActiveUnlockings(uavID, string(category))
+	if err == nil && len(activeUnlocks) > 0 {
+		return true
+	}
+	return false
+}
+
 func (s *GeofenceService) checkSingleGeofence(gf *models.Geofence, lat, lng, altitude float64) *GeofenceViolation {
 	if altitude > gf.MaxAltitude && gf.MaxAltitude > 0 {
 		return &GeofenceViolation{
-			GeofenceID:   gf.ID,
-			GeofenceName: gf.Name,
-			ViolationType: "altitude_exceeded",
-			Distance:    altitude - gf.MaxAltitude,
+			GeofenceID:     gf.ID,
+			GeofenceName:   gf.Name,
+			ViolationType:  string(models.ViolationTypeAltitudeExceeded),
+			Distance:       altitude - gf.MaxAltitude,
 		}
 	}
 
 	if altitude < gf.MinAltitude && gf.MinAltitude > 0 && altitude > 0 {
 		return &GeofenceViolation{
-			GeofenceID:   gf.ID,
-			GeofenceName: gf.Name,
-			ViolationType: "altitude_too_low",
-			Distance:    gf.MinAltitude - altitude,
+			GeofenceID:     gf.ID,
+			GeofenceName:   gf.Name,
+			ViolationType:  string(models.ViolationTypeAltitudeTooLow),
+			Distance:       gf.MinAltitude - altitude,
 		}
 	}
 
@@ -211,19 +327,19 @@ func (s *GeofenceService) checkSingleGeofence(gf *models.Geofence, lat, lng, alt
 		if gf.Type == models.GeofenceTypeExclusion {
 			if distance <= gf.Radius {
 				return &GeofenceViolation{
-					GeofenceID:   gf.ID,
-					GeofenceName: gf.Name,
-					ViolationType: "inside_exclusion_zone",
-					Distance:    gf.Radius - distance,
+					GeofenceID:     gf.ID,
+					GeofenceName:   gf.Name,
+					ViolationType:  string(models.ViolationTypeInsideExclusionZone),
+					Distance:       gf.Radius - distance,
 				}
 			}
 		} else if gf.Type == models.GeofenceTypeInclusion {
 			if distance > gf.Radius {
 				return &GeofenceViolation{
-					GeofenceID:   gf.ID,
-					GeofenceName: gf.Name,
-					ViolationType: "outside_inclusion_zone",
-					Distance:    distance - gf.Radius,
+					GeofenceID:     gf.ID,
+					GeofenceName:   gf.Name,
+					ViolationType:  string(models.ViolationTypeOutsideInclusionZone),
+					Distance:       distance - gf.Radius,
 				}
 			}
 		}
@@ -246,10 +362,10 @@ func (s *GeofenceService) checkSingleGeofence(gf *models.Geofence, lat, lng, alt
 				}
 			}
 			return &GeofenceViolation{
-				GeofenceID:   gf.ID,
-				GeofenceName: gf.Name,
-				ViolationType: "inside_exclusion_zone",
-				Distance:    minDistance,
+				GeofenceID:     gf.ID,
+				GeofenceName:   gf.Name,
+				ViolationType:  string(models.ViolationTypeInsideExclusionZone),
+				Distance:       minDistance,
 			}
 		} else if gf.Type == models.GeofenceTypeInclusion && !inside {
 			minDistance := math.Inf(1)
@@ -260,10 +376,10 @@ func (s *GeofenceService) checkSingleGeofence(gf *models.Geofence, lat, lng, alt
 				}
 			}
 			return &GeofenceViolation{
-				GeofenceID:   gf.ID,
-				GeofenceName: gf.Name,
-				ViolationType: "outside_inclusion_zone",
-				Distance:    minDistance,
+				GeofenceID:     gf.ID,
+				GeofenceName:   gf.Name,
+				ViolationType:  string(models.ViolationTypeOutsideInclusionZone),
+				Distance:       minDistance,
 			}
 		}
 	}
@@ -271,6 +387,60 @@ func (s *GeofenceService) checkSingleGeofence(gf *models.Geofence, lat, lng, alt
 	return nil
 }
 
+func (s *GeofenceService) executeFailAction(uavID uint64, gf models.Geofence, action models.FailAction) {
+	cmdMgr := mavlink.NewCommandManager()
+	if cmdMgr == nil {
+		return
+	}
+
+	switch action {
+	case models.FailActionRTL:
+		data := mavlink.EncodeCommandLong(uavID, mavlink.CMD_NAV_RETURN_TO_LAUNCH, 0, 0, 0, 0, 0, 0, 0)
+		_ = cmdMgr.SendCommand(uavID, data)
+	case models.FailActionLand:
+		data := mavlink.EncodeCommandLong(uavID, mavlink.CMD_NAV_LAND, 0, 0, 0, 0, 0, 0, 0)
+		_ = cmdMgr.SendCommand(uavID, data)
+	case models.FailActionHover:
+		data := mavlink.EncodeCommandLong(uavID, mavlink.CMD_DO_GUIDED_LIMITS, 0, 0, 0, 0, 0, 0, 0)
+		_ = cmdMgr.SendCommand(uavID, data)
+	}
+}
+
 func (s *GeofenceService) GetActiveGeofences() ([]models.Geofence, error) {
-	return s.geofenceRepo.GetActiveGeofences()
+	return s.cache.GetAllActive()
+}
+
+func (s *GeofenceService) GetAllNational() ([]models.Geofence, error) {
+	pagination := &utils.Pagination{Page: 1, PageSize: 1000}
+	gfType := models.GeofenceType("")
+	isActive := true
+	category := models.GeofenceCategory("")
+	source := models.GeofenceSourceNational
+	result, _, err := s.geofenceRepo.ListFiltered(pagination, gfType, &isActive, category, source)
+	return result, err
+}
+
+func (s *GeofenceService) ImportNationalGeofences(geofences []models.Geofence) (int, error) {
+	count := 0
+	for _, gf := range geofences {
+		gf.Source = models.GeofenceSourceNational
+		gf.IsActive = true
+		if gf.FailAction == "" {
+			gf.FailAction = models.FailActionHover
+		}
+		if gf.Category == "" {
+			gf.Category = models.GeofenceCategoryNational
+		}
+		if err := s.geofenceRepo.Create(&gf); err == nil {
+			count++
+		}
+	}
+	if count > 0 {
+		s.cache.Refresh()
+	}
+	return count, nil
+}
+
+func (s *GeofenceService) RefreshCache() {
+	s.cache.Refresh()
 }

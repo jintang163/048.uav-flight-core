@@ -5,7 +5,7 @@ import { Button, message } from 'antd'
 import { PlusOutlined, DeleteOutlined, EditOutlined, SaveOutlined, CloseOutlined } from '@ant-design/icons'
 import { useGeofence } from '@/hooks/useGeofence'
 import { useMission } from '@/hooks/useMission'
-import type { Waypoint, Geofence, GeofenceType } from '@/types'
+import type { Waypoint, Geofence, GeofenceShape, GeofenceCategory } from '@/types'
 import { generateId, calculateDistance } from '@/utils'
 
 const MapContainer = styled.div`
@@ -47,6 +47,9 @@ interface FlightMapProps {
   showGeofence?: boolean
   showMission?: boolean
   editable?: boolean
+  geofences?: Geofence[]
+  selectedGeofenceId?: string | null
+  showNationalOnly?: boolean
   onWaypointAdd?: (waypoint: Waypoint) => void
   onWaypointUpdate?: (waypoint: Waypoint) => void
   onWaypointDelete?: (waypointId: string) => void
@@ -61,6 +64,9 @@ const FlightMap: React.FC<FlightMapProps> = ({
   showGeofence = true,
   showMission = true,
   editable = false,
+  geofences: propGeofences,
+  selectedGeofenceId,
+  showNationalOnly = false,
   onWaypointAdd,
   onWaypointUpdate,
   onWaypointDelete
@@ -75,10 +81,17 @@ const FlightMap: React.FC<FlightMapProps> = ({
   const drawingPolygon = useRef<AMap.Polygon | null>(null)
   const drawingPoints = useRef<{ lat: number; lng: number }[]>([])
 
-  const { geofences, drawMode, drawType, startDraw, stopDraw, createGeofence } = useGeofence()
+  const hookGeofence = useGeofence()
   const { waypoints, addWaypoint, updateWaypoint, deleteWaypoint } = useMission()
   const [mapLoaded, setMapLoaded] = useState(false)
   const [cursorPosition, setCursorPosition] = useState<{ lat: number; lng: number } | null>(null)
+
+  const displayGeofences = propGeofences ?? hookGeofence.geofences
+  const drawMode = propGeofences ? false : hookGeofence.drawMode
+  const drawType = propGeofences ? undefined : hookGeofence.drawType
+  const startDraw = hookGeofence.startDraw
+  const stopDraw = hookGeofence.stopDraw
+  const createGeofence = hookGeofence.createGeofence
 
   useEffect(() => {
     const initMap = async () => {
@@ -405,40 +418,76 @@ const FlightMap: React.FC<FlightMapProps> = ({
     geofencePolygons.current.forEach(polygon => polygon.setMap(null))
     geofencePolygons.current.clear()
 
-    geofences.forEach(geofence => {
-      if (!geofence.isEnabled) return
+    const getGeofenceColor = (gf: Geofence) => {
+      const isSelected = selectedGeofenceId && selectedGeofenceId === gf.id
+      if (gf.type === 'inclusion') {
+        return isSelected ? '#52c41a' : '#52c41a'
+      }
+      const categoryColors: Record<GeofenceCategory, string> = {
+        custom: '#1890ff',
+        airport: '#ff4d4f',
+        military: '#fa8c16',
+        nuclear: '#722ed1',
+        government: '#13c2c2',
+        national: '#ff4d4f'
+      }
+      return categoryColors[gf.category as GeofenceCategory] || '#ff4d4f'
+    }
+
+    displayGeofences.forEach(geofence => {
+      if (!geofence.isActive && !propGeofences) return
 
       let polygon: AMap.Polygon | AMap.Circle
+      const color = getGeofenceColor(geofence)
+      const isSelected = selectedGeofenceId && selectedGeofenceId === geofence.id
+      const strokeWeight = isSelected ? 3 : 2
+      const fillOpacity = isSelected ? 0.2 : 0.12
 
-      if (geofence.shape.type === 'circle') {
-        const shape = geofence.shape as { type: 'circle'; center: { lat: number; lng: number }; radius: number }
+      const shape = geofence.shape as GeofenceShape
+      if (shape === 'circle') {
+        const center = geofence.centerLat && geofence.centerLng
+          ? { lat: geofence.centerLat, lng: geofence.centerLng }
+          : (geofence.coordinates && geofence.coordinates[0]
+            ? geofence.coordinates[0]
+            : { lat: 0, lng: 0 })
+        const radius = geofence.radius || 1000
+
         polygon = new amap.Circle({
-          center: [shape.center.lng, shape.center.lat],
-          radius: shape.radius,
-          strokeColor: geofence.isInclusion ? '#52c41a' : '#ff4d4f',
-          strokeWeight: 2,
-          fillColor: geofence.isInclusion ? '#52c41a' : '#ff4d4f',
-          fillOpacity: 0.1,
+          center: [center.lng, center.lat],
+          radius: radius,
+          strokeColor: color,
+          strokeWeight: strokeWeight,
+          fillColor: color,
+          fillOpacity: fillOpacity,
           map: mapInstance.current
         })
-      } else if (geofence.shape.type === 'polygon') {
-        const shape = geofence.shape as { type: 'polygon'; points: { lat: number; lng: number }[] }
-        const path = shape.points.map(p => [p.lng, p.lat])
+      } else if (shape === 'polygon' && geofence.coordinates && geofence.coordinates.length >= 3) {
+        const path = geofence.coordinates.map(p => [p.lng, p.lat])
         polygon = new amap.Polygon({
           path: path as unknown as AMap.Vector[],
-          strokeColor: geofence.isInclusion ? '#52c41a' : '#ff4d4f',
-          strokeWeight: 2,
-          fillColor: geofence.isInclusion ? '#52c41a' : '#ff4d4f',
-          fillOpacity: 0.1,
+          strokeColor: color,
+          strokeWeight: strokeWeight,
+          fillColor: color,
+          fillOpacity: fillOpacity,
+          map: mapInstance.current
+        })
+      } else if (shape === 'rectangle' && geofence.coordinates && geofence.coordinates.length >= 2) {
+        const path = geofence.coordinates.map(p => [p.lng, p.lat])
+        polygon = new amap.Polygon({
+          path: path as unknown as AMap.Vector[],
+          strokeColor: color,
+          strokeWeight: strokeWeight,
+          fillColor: color,
+          fillOpacity: fillOpacity,
           map: mapInstance.current
         })
       } else {
         return
       }
 
-      geofencePolygons.current.set(geofence.id, polygon)
+      geofencePolygons.current.set(String(geofence.id), polygon)
     })
-  }, [geofences, showGeofence])
+  }, [displayGeofences, showGeofence, selectedGeofenceId, propGeofences])
 
   useEffect(() => {
     if (!showMission) {

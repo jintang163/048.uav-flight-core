@@ -55,6 +55,35 @@ func (r *GeofenceRepository) List(pagination *utils.Pagination, gfType models.Ge
 	return geofences, total, nil
 }
 
+func (r *GeofenceRepository) ListFiltered(pagination *utils.Pagination, gfType models.GeofenceType, isActive *bool, category models.GeofenceCategory, source models.GeofenceSource) ([]models.Geofence, int64, error) {
+	var geofences []models.Geofence
+	query := r.db.Model(&models.Geofence{})
+	if gfType != "" {
+		query = query.Where("type = ?", gfType)
+	}
+	if isActive != nil {
+		query = query.Where("is_active = ?", *isActive)
+	}
+	if category != "" {
+		query = query.Where("category = ?", category)
+	}
+	if source != "" {
+		query = query.Where("source = ?", source)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if err := query.Order("created_at DESC").Offset(pagination.Offset()).Limit(pagination.Limit()).Find(&geofences).Error; err != nil {
+		return nil, 0, err
+	}
+	return geofences, total, nil
+}
+
+func (r *GeofenceRepository) ClearUAVs(geofenceID uint64) error {
+	return r.db.Where("geofence_id = ?", geofenceID).Delete(&models.UAVGeofence{}).Error
+}
+
 func (r *GeofenceRepository) GetActiveGeofences() ([]models.Geofence, error) {
 	var geofences []models.Geofence
 	err := r.db.Where("is_active = ?", true).Find(&geofences).Error
