@@ -5,6 +5,7 @@ import (
 	"groundstation-backend/internal/models"
 	"groundstation-backend/internal/repository"
 	"groundstation-backend/pkg/utils"
+	"time"
 )
 
 type UAVService struct {
@@ -190,5 +191,3 @@ func (s *UAVService) GetFlightHistory(uavID uint64, pagination *utils.Pagination
 
 	return s.flightRepo.GetStatusHistory(uavID, pagination, (*time.Time)(start), (*time.Time)(end))
 }
-
-import "time"

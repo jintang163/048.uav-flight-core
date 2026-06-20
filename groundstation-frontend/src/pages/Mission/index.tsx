@@ -222,6 +222,7 @@ const Mission: React.FC<MissionProps> = ({ missionId }) => {
     startMission,
     pauseMission,
     resumeMission,
+    resumeMissionFromBreakpoint,
     stopMission,
     exportMission,
     importMission,
@@ -319,9 +320,9 @@ const Mission: React.FC<MissionProps> = ({ missionId }) => {
   }
 
   const handlePauseMission = async () => {
-    if (selectedUAVId) {
+    if (currentMission) {
       try {
-        await pauseMission(selectedUAVId)
+        await pauseMission(currentMission.id)
         message.success('任务已暂停')
       } catch (error) {
         message.error('暂停失败')
@@ -330,9 +331,9 @@ const Mission: React.FC<MissionProps> = ({ missionId }) => {
   }
 
   const handleResumeMission = async () => {
-    if (selectedUAVId) {
+    if (currentMission) {
       try {
-        await resumeMission(selectedUAVId)
+        await resumeMission(currentMission.id)
         message.success('任务已继续')
       } catch (error) {
         message.error('继续失败')
@@ -340,8 +341,27 @@ const Mission: React.FC<MissionProps> = ({ missionId }) => {
     }
   }
 
+  const handleResumeFromBreakpoint = async () => {
+    if (currentMission) {
+      Modal.confirm({
+        title: '确认从断点续飞',
+        content: '无人机将从上次中断的航点继续执行任务。',
+        okText: '确认续飞',
+        cancelText: '取消',
+        onOk: async () => {
+          try {
+            await resumeMissionFromBreakpoint(currentMission.id)
+            message.success('已从断点续飞')
+          } catch (error) {
+            message.error('断点续飞失败')
+          }
+        }
+      })
+    }
+  }
+
   const handleStopMission = async () => {
-    if (selectedUAVId) {
+    if (currentMission) {
       Modal.confirm({
         title: '确认停止任务',
         content: '停止后无人机将悬停在当前位置，请选择后续操作（返航/降落）。',
@@ -350,7 +370,7 @@ const Mission: React.FC<MissionProps> = ({ missionId }) => {
         okButtonProps: { danger: true },
         onOk: async () => {
           try {
-            await stopMission(selectedUAVId)
+            await stopMission(currentMission.id)
             message.success('任务已停止')
           } catch (error) {
             message.error('停止失败')
@@ -515,14 +535,23 @@ const Mission: React.FC<MissionProps> = ({ missionId }) => {
               ) : (
                 <>
                   {executionState?.status === 'paused' ? (
-                    <Button
-                      type="primary"
-                      icon={<PlayCircleOutlined />}
-                      onClick={handleResumeMission}
-                      disabled={loading}
-                    >
-                      继续
-                    </Button>
+                    <>
+                      <Button
+                        type="primary"
+                        icon={<PlayCircleOutlined />}
+                        onClick={handleResumeMission}
+                        disabled={loading}
+                      >
+                        继续
+                      </Button>
+                      <Button
+                        icon={<ImportOutlined />}
+                        onClick={handleResumeFromBreakpoint}
+                        disabled={loading}
+                      >
+                        断点续飞
+                      </Button>
+                    </>
                   ) : (
                     <Button
                       icon={<PauseOutlined />}

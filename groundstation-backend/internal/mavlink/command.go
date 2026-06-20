@@ -1,14 +1,21 @@
 package mavlink
 
 import (
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"math"
+	"net"
+	"sync"
+	"time"
+
 	"groundstation-backend/internal/config"
+	"groundstation-backend/internal/middleware"
 	"groundstation-backend/internal/models"
 	"groundstation-backend/internal/nsq"
 	"groundstation-backend/internal/service"
 	"groundstation-backend/internal/websocket"
-	"net"
-	"sync"
-	"time"
+	"go.uber.org/zap"
 )
 
 type CommandManager struct {
@@ -409,10 +416,3 @@ func getCommandResultMessage(result uint8) string {
 		return fmt.Sprintf("未知错误 (%d)", result)
 	}
 }
-
-import "encoding/binary"
-import "errors"
-import "fmt"
-import "math"
-import "go.uber.org/zap"
-import "groundstation-backend/internal/middleware"

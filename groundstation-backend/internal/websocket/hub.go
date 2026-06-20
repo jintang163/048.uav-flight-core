@@ -22,7 +22,9 @@ type Hub struct {
 type Message struct {
 	Type    string      `json:"type"`
 	Data    interface{} `json:"data"`
+	Payload interface{} `json:"payload"`
 	UAVID   uint64      `json:"uav_id,omitempty"`
+	UavID   uint64      `json:"uavId,omitempty"`
 	Time    int64       `json:"time"`
 }
 
@@ -103,9 +105,10 @@ func (h *Hub) broadcastTelemetry() {
 	}
 
 	msg := &Message{
-		Type: "telemetry_all",
-		Data: allData,
-		Time: time.Now().UnixNano() / 1e6,
+		Type:    "telemetry_all",
+		Data:    allData,
+		Payload: allData,
+		Time:    time.Now().UnixNano() / 1e6,
 	}
 
 	data, err := json.Marshal(msg)
@@ -125,10 +128,12 @@ func (h *Hub) broadcastTelemetry() {
 
 func (h *Hub) BroadcastUAVTelemetry(uavID uint64, data interface{}) {
 	msg := &Message{
-		Type:  "telemetry",
-		Data:  data,
-		UAVID: uavID,
-		Time:  time.Now().UnixNano() / 1e6,
+		Type:    "telemetry",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
 	}
 
 	bytes, err := json.Marshal(msg)
@@ -152,9 +157,10 @@ func (h *Hub) BroadcastUAVTelemetry(uavID uint64, data interface{}) {
 
 func (h *Hub) BroadcastAlert(data interface{}) {
 	msg := &Message{
-		Type: "alert",
-		Data: data,
-		Time: time.Now().UnixNano() / 1e6,
+		Type:    "alert",
+		Data:    data,
+		Payload: data,
+		Time:    time.Now().UnixNano() / 1e6,
 	}
 
 	bytes, err := json.Marshal(msg)
@@ -167,10 +173,138 @@ func (h *Hub) BroadcastAlert(data interface{}) {
 
 func (h *Hub) BroadcastMissionUpdate(uavID uint64, data interface{}) {
 	msg := &Message{
-		Type:  "mission_update",
-		Data:  data,
-		UAVID: uavID,
-		Time:  time.Now().UnixNano() / 1e6,
+		Type:    "mission_update",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastMissionProgress(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "mission_progress",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastWaypointReached(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "waypoint_reached",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastMissionStatus(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "mission_status",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastUAVStatus(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "uav_status",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastUAVMode(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "uav_mode",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastBattery(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "battery",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastGeofenceViolation(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "geofence_violation",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
 	}
 
 	bytes, err := json.Marshal(msg)
@@ -209,9 +343,10 @@ func (h *Hub) GetClientCount() int {
 
 func (h *Hub) SendToClient(client *Client, msgType string, data interface{}) {
 	msg := &Message{
-		Type: msgType,
-		Data: data,
-		Time: time.Now().UnixNano() / 1e6,
+		Type:    msgType,
+		Data:    data,
+		Payload: data,
+		Time:    time.Now().UnixNano() / 1e6,
 	}
 
 	bytes, err := json.Marshal(msg)

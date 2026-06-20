@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"groundstation-backend/internal/models"
+	"math"
 	"time"
 )
 
@@ -28,21 +29,27 @@ const (
 )
 
 const (
-	CMD_NAV_WAYPOINT             = 16
-	CMD_NAV_LOITER_UNLIM         = 17
-	CMD_NAV_LOITER_TURNS         = 18
-	CMD_NAV_LOITER_TIME          = 19
-	CMD_NAV_RETURN_TO_LAUNCH     = 20
-	CMD_NAV_LAND                 = 21
-	CMD_NAV_TAKEOFF              = 22
-	CMD_DO_JUMP                  = 177
-	CMD_DO_CHANGE_SPEED          = 178
-	CMD_DO_SET_HOME              = 179
-	CMD_DO_SET_PARAMETER         = 23
-	CMD_DO_SET_MODE              = 176
-	CMD_COMPONENT_ARM_DISARM     = 400
-	CMD_MISSION_START            = 300
-	CMD_MISSION_CLEAR_ALL        = 45
+	CMD_NAV_WAYPOINT                      = 16
+	CMD_NAV_LOITER_UNLIM                  = 17
+	CMD_NAV_LOITER_TURNS                  = 18
+	CMD_NAV_LOITER_TIME                   = 19
+	CMD_NAV_RETURN_TO_LAUNCH              = 20
+	CMD_NAV_LAND                          = 21
+	CMD_NAV_TAKEOFF                       = 22
+	CMD_DO_JUMP                           = 177
+	CMD_DO_CHANGE_SPEED                   = 178
+	CMD_DO_SET_HOME                       = 179
+	CMD_DO_SET_PARAMETER                  = 23
+	CMD_DO_SET_MODE                       = 176
+	CMD_COMPONENT_ARM_DISARM              = 400
+	CMD_MISSION_START                     = 300
+	CMD_MISSION_CLEAR_ALL                 = 45
+	CMD_MISSION_SET_CURRENT               = 41
+	CMD_DO_SET_POSITION_TARGET_LOCAL_NED  = 84
+	CMD_CONDITION_YAW                     = 115
+	CMD_PREFLIGHT_REBOOT_SHUTDOWN         = 246
+	CMD_PREFLIGHT_CALIBRATION             = 241
+	CMD_DO_DIGICAM_CONTROL                = 203
 )
 
 type MAVLinkMessage struct {
@@ -252,5 +259,3 @@ func GetFlightModeName(code uint32) string {
 	}
 	return "UNKNOWN"
 }
-
-import "math"

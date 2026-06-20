@@ -2,10 +2,12 @@ package handler
 
 import (
 	"net/http"
+
 	"groundstation-backend/internal/middleware"
 	"groundstation-backend/internal/models"
 	"groundstation-backend/internal/service"
 	"groundstation-backend/pkg/utils"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -15,6 +17,7 @@ type CreateTemplateRequest struct {
 	Name        string                   `json:"name" binding:"required"`
 	Description string                   `json:"description"`
 	Category    string                   `json:"category"`
+	Type        string                   `json:"type"`
 	Waypoints   []models.MissionWaypoint `json:"waypoints" binding:"required,min=1"`
 }
 
@@ -22,6 +25,7 @@ type UpdateTemplateRequest struct {
 	Name        string                   `json:"name"`
 	Description string                   `json:"description"`
 	Category    string                   `json:"category"`
+	Type        string                   `json:"type"`
 	Waypoints   []models.MissionWaypoint `json:"waypoints"`
 }
 
@@ -33,6 +37,15 @@ type CreateMissionRequest struct {
 	PlannedTime   string                 `json:"planned_time"`
 	MaxAltitude   float64                `json:"max_altitude"`
 	MaxSpeed      float64                `json:"max_speed"`
+	Speed         float64                `json:"speed"`
+	FailSafe      string                 `json:"fail_safe"`
+	EnableGeofence bool                  `json:"enable_geofence"`
+	Notes         string                 `json:"notes"`
+	Waypoints     []models.MissionWaypoint `json:"waypoints"`
+}
+
+type SetCurrentWaypointRequest struct {
+	Index int `json:"index" binding:"required"`
 }
 
 func CreateTemplate(c *gin.Context) {
@@ -44,15 +57,20 @@ func CreateTemplate(c *gin.Context) {
 
 	userID := middleware.GetCurrentUserID(c)
 
+	missionType := models.MissionTypeCustom
+	if req.Type != "" {
+		missionType = models.MissionType(req.Type)
+	}
+
 	template := &models.MissionTemplate{
 		Name:        req.Name,
 		Description: req.Description,
 		Category:    req.Category,
-		CreatorID:   userID,
+		Type:        missionType,
 		Waypoints:   req.Waypoints,
 	}
 
-	result, err := missionService.CreateTemplate(template)
+	result, err := missionService.CreateTemplate(template, userID)
 	if err != nil {
 		utils.ErrorResponse(c, http.StatusBadRequest, 400002, err.Error(), nil)
 		return
@@ -104,10 +122,16 @@ func UpdateTemplate(c *gin.Context) {
 		return
 	}
 
+	missionType := models.MissionTypeCustom
+	if req.Type != "" {
+		missionType = models.MissionType(req.Type)
+	}
+
 	template := &models.MissionTemplate{
 		Name:        req.Name,
 		Description: req.Description,
 		Category:    req.Category,
+		Type:        missionType,
 	}
 
 	result, err := missionService.UpdateTemplate(id, template, req.Waypoints)
@@ -144,13 +168,19 @@ func CreateMission(c *gin.Context) {
 	userID := middleware.GetCurrentUserID(c)
 
 	mission := &models.FlightMission{
-		UAVID:       req.UAVID,
-		TemplateID:  req.TemplateID,
-		Name:        req.Name,
-		Description: req.Description,
-		CreatorID:   userID,
-		MaxAltitude: req.MaxAltitude,
-		MaxSpeed:    req.MaxSpeed,
+		UAVID:          req.UAVID,
+		TemplateID:     req.TemplateID,
+		Name:           req.Name,
+		Description:    req.Description,
+		CreatorID:      userID,
+		OperatorID:     userID,
+		MaxAltitude:    req.MaxAltitude,
+		MaxSpeed:       req.MaxSpeed,
+		Speed:          req.Speed,
+		FailSafe:       req.FailSafe,
+		EnableGeofence: req.EnableGeofence,
+		Notes:          req.Notes,
+		Waypoints:      req.Waypoints,
 	}
 
 	result, err := missionService.CreateMission(mission)
@@ -192,6 +222,28 @@ func ListMissions(c *gin.Context) {
 	}
 
 	utils.SuccessResponseWithTotal(c, "获取成功", missions, total)
+}
+
+func UpdateMission(c *gin.Context) {
+	id, err := utils.ParseUint64(c.Param("id"))
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "无效的任务ID", nil)
+		return
+	}
+
+	var mission models.FlightMission
+	if err := c.ShouldBindJSON(&mission); err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400002, "参数错误: "+err.Error(), nil)
+		return
+	}
+
+	result, err := missionService.UpdateMission(id, &mission)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, err.Error(), nil)
+		return
+	}
+
+	utils.SuccessResponse(c, "更新成功", result)
 }
 
 func StartMission(c *gin.Context) {
@@ -243,6 +295,44 @@ func ResumeMission(c *gin.Context) {
 	utils.SuccessResponse(c, "任务已恢复", mission)
 }
 
+func ResumeMissionFromBreakpoint(c *gin.Context) {
+	id, err := utils.ParseUint64(c.Param("id"))
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "无效的任务ID", nil)
+		return
+	}
+
+	mission, err := missionService.ResumeMissionFromBreakpoint(id)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400002, err.Error(), nil)
+		return
+	}
+
+	utils.SuccessResponse(c, "任务已从断点续飞", mission)
+}
+
+func SetCurrentWaypoint(c *gin.Context) {
+	id, err := utils.ParseUint64(c.Param("id"))
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "无效的任务ID", nil)
+		return
+	}
+
+	var req SetCurrentWaypointRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400002, "参数错误: "+err.Error(), nil)
+		return
+	}
+
+	mission, err := missionService.SetCurrentWaypoint(id, req.Index)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400003, err.Error(), nil)
+		return
+	}
+
+	utils.SuccessResponse(c, "已设置当前航点", mission)
+}
+
 func AbortMission(c *gin.Context) {
 	id, err := utils.ParseUint64(c.Param("id"))
 	if err != nil {
@@ -253,7 +343,7 @@ func AbortMission(c *gin.Context) {
 	var data struct {
 		Reason string `json:"reason"`
 	}
-	c.ShouldBindJSON(&data)
+	_ = c.ShouldBindJSON(&data)
 
 	mission, err := missionService.AbortMission(id, data.Reason)
 	if err != nil {
@@ -262,26 +352,4 @@ func AbortMission(c *gin.Context) {
 	}
 
 	utils.SuccessResponse(c, "任务已终止", mission)
-}
-
-func UpdateMission(c *gin.Context) {
-	id, err := utils.ParseUint64(c.Param("id"))
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "无效的任务ID", nil)
-		return
-	}
-
-	var mission models.FlightMission
-	if err := c.ShouldBindJSON(&mission); err != nil {
-		utils.ErrorResponse(c, http.StatusBadRequest, 400002, "参数错误: "+err.Error(), nil)
-		return
-	}
-
-	result, err := missionService.UpdateMission(id, &mission)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, err.Error(), nil)
-		return
-	}
-
-	utils.SuccessResponse(c, "更新成功", result)
 }

@@ -85,11 +85,13 @@ class WebSocketClient {
   private handleMessage(event: MessageEvent): void {
     try {
       const data = JSON.parse(event.data)
-      
-      if (data.type && this.messageHandlers.has(data.type)) {
-        this.messageHandlers.get(data.type)?.forEach(handler => handler(data.payload))
+      const msgType = data.type
+      const payload = data.payload !== undefined ? data.payload : data.data
+
+      if (msgType && this.messageHandlers.has(msgType)) {
+        this.messageHandlers.get(msgType)?.forEach(handler => handler(payload))
       }
-      
+
       this.onMessage?.(data)
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error)
@@ -130,12 +132,37 @@ class WebSocketClient {
   }
 
   send(type: string, payload: unknown): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type, payload, timestamp: Date.now() }))
-    } else {
-      console.warn('WebSocket is not connected. Message queued.')
-      setTimeout(() => this.send(type, payload), 1000)
+    const sendPayload = (): void => {
+      if (this.ws?.readyState !== WebSocket.OPEN) {
+        console.warn('WebSocket is not connected. Message queued.')
+        setTimeout(sendPayload, 1000)
+        return
+      }
+
+      const payloadObj = payload as Record<string, unknown>
+      const msg: Record<string, unknown> = {
+        type,
+        action: type,
+        payload,
+        data: payload,
+        timestamp: Date.now()
+      }
+
+      if (payloadObj && typeof payloadObj === 'object') {
+        if (payloadObj.uavId !== undefined) {
+          msg.uavId = payloadObj.uavId
+          msg.uav_id = payloadObj.uavId
+        }
+        if (payloadObj.uav_id !== undefined) {
+          msg.uav_id = payloadObj.uav_id
+          msg.uavId = payloadObj.uav_id
+        }
+      }
+
+      this.ws.send(JSON.stringify(msg))
     }
+
+    sendPayload()
   }
 
   on(type: string, handler: MessageHandler): void {

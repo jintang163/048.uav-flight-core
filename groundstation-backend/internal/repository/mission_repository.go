@@ -143,3 +143,59 @@ func (r *MissionRepository) GetActiveMissionByUAV(uavID uint64) (*models.FlightM
 	}
 	return &mission, nil
 }
+
+func (r *MissionRepository) ListTemplatesByCategory(pagination *utils.Pagination, category string, keyword string) ([]models.MissionTemplate, int64, error) {
+	var templates []models.MissionTemplate
+	query := r.db.Model(&models.MissionTemplate{}).Preload("Waypoints")
+	if category != "" {
+		query = query.Where("category = ? OR type = ?", category, category)
+	}
+	if keyword != "" {
+		query = query.Where("name LIKE ? OR description LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if err := query.Order("created_at DESC").Offset(pagination.Offset()).Limit(pagination.Limit()).Find(&templates).Error; err != nil {
+		return nil, 0, err
+	}
+	return templates, total, nil
+}
+
+func (r *MissionRepository) UpdateTemplate(template *models.MissionTemplate) error {
+	return r.db.Save(template).Error
+}
+
+func (r *MissionRepository) DeleteTemplateWaypoints(templateID uint64) error {
+	return r.db.Where("template_id = ?", templateID).Delete(&models.MissionWaypoint{}).Error
+}
+
+func (r *MissionRepository) ListMissionsFiltered(pagination *utils.Pagination, uavID uint64, status string, startTime string, endTime string) ([]models.FlightMission, int64, error) {
+	var missions []models.FlightMission
+	query := r.db.Model(&models.FlightMission{}).Preload("UAV").Preload("Template")
+	if uavID > 0 {
+		query = query.Where("uav_id = ?", uavID)
+	}
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if startTime != "" {
+		query = query.Where("created_at >= ?", startTime)
+	}
+	if endTime != "" {
+		query = query.Where("created_at <= ?", endTime)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if err := query.Order("created_at DESC").Offset(pagination.Offset()).Limit(pagination.Limit()).Find(&missions).Error; err != nil {
+		return nil, 0, err
+	}
+	return missions, total, nil
+}
+
+func (r *MissionRepository) Update(mission *models.FlightMission) error {
+	return r.db.Save(mission).Error
+}

@@ -2,6 +2,7 @@ package mavlink
 
 import (
 	"encoding/binary"
+	"math"
 )
 
 func EncodeCommandLong(uavID uint64, command uint16, params ...float32) []byte {
@@ -140,5 +141,3 @@ func EncodeArmDisarm(arm bool) []byte {
 	}
 	return EncodeCommandLong(1, CMD_COMPONENT_ARM_DISARM, param1, 0, 0, 0, 0, 0, 0)
 }
-
-import "math"

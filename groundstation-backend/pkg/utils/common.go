@@ -293,5 +293,3 @@ func GeneratePaginationFromRequest(c *gin.Context) *Pagination {
 		OrderBy:  orderBy,
 	}
 }
-
-import "github.com/gin-gonic/gin"

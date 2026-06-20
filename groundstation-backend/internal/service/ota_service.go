@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"groundstation-backend/internal/config"
@@ -16,6 +17,8 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
+
+var ctx = context.Background()
 
 type OTAService struct {
 	otaRepo  *repository.OTARepository
@@ -245,7 +248,3 @@ func (s *OTAService) DownloadFirmware(id uint64) (string, error) {
 func (s *OTAService) GetActiveUpdate(uavID uint64) (*models.FirmwareUpdate, error) {
 	return s.otaRepo.GetActiveUpdateByUAV(uavID)
 }
-
-import "context"
-
-var ctx = context.Background()

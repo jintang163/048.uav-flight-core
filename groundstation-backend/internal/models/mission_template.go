@@ -21,6 +21,7 @@ type MissionTemplate struct {
 	UUID        string         `gorm:"type:varchar(36);uniqueIndex;not null" json:"uuid"`
 	Name        string         `gorm:"type:varchar(100);not null" json:"name"`
 	Description string         `gorm:"type:text" json:"description"`
+	Category    string         `gorm:"type:varchar(50);default:''" json:"category"`
 	Type        MissionType    `gorm:"type:varchar(20);default:'custom'" json:"type"`
 	CreatorID   uint64         `json:"creator_id"`
 	MaxAltitude float64        `gorm:"type:decimal(8,2)" json:"max_altitude"`

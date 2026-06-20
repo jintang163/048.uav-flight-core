@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"groundstation-backend/internal/config"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/go-redis/redis/v8"
 )
+
+var ctx = context.Background()
 
 type FlightService struct {
 	flightRepo  *repository.FlightRepository
@@ -219,7 +222,3 @@ func (s *FlightService) GetFlightSummary(uavID uint64, startTime, endTime time.T
 func (s *FlightService) CleanOldData(beforeDays int) (int64, error) {
 	return s.flightRepo.CleanOldData(beforeDays)
 }
-
-import "context"
-
-var ctx = context.Background()

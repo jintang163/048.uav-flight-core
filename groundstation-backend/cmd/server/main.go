@@ -25,7 +25,11 @@ import (
 )
 
 func main() {
-	if err := config.LoadConfig(); err != nil {
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "config/config.yaml"
+	}
+	if _, err := config.LoadConfig(configPath); err != nil {
 		fmt.Printf("Failed to load config: %v\n", err)
 		os.Exit(1)
 	}
@@ -147,7 +151,10 @@ func main() {
 			mission.POST("/:id/start", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StartMission)
 			mission.POST("/:id/pause", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.PauseMission)
 			mission.POST("/:id/resume", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ResumeMission)
+			mission.POST("/:id/resume-breakpoint", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ResumeMissionFromBreakpoint)
 			mission.POST("/:id/abort", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.AbortMission)
+			mission.POST("/:id/waypoint/current", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SetCurrentWaypoint)
+			mission.POST("/:id/stop", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.AbortMission)
 		}
 
 		geofence := api.Group("/geofences", middleware.JWTAuth())
@@ -258,8 +265,8 @@ func main() {
 	if sqlDB != nil {
 		sqlDB.Close()
 	}
-	if config.RedisClient != nil {
-		config.RedisClient.Close()
+	if config.Redis != nil {
+		config.Redis.Close()
 	}
 
 	fmt.Println("Server exited properly")

@@ -5,6 +5,8 @@ import (
 	"groundstation-backend/internal/models"
 	"groundstation-backend/internal/service"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 var telemetryHub = NewHub()
@@ -73,15 +75,19 @@ func BroadcastTelemetry(uavID uint64, status *models.FlightStatus) {
 func BroadcastUAVStatus(uavID uint64, status string, message string) {
 	data := gin.H{
 		"uav_id":    uavID,
+		"uavId":     uavID,
 		"status":    status,
 		"message":   message,
 		"timestamp": time.Now().UnixNano() / 1e6,
 	}
 
 	msg := &Message{
-		Type: "uav_status",
-		Data: data,
-		Time: time.Now().UnixNano() / 1e6,
+		Type:    "uav_status",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
 	}
 
 	bytes, _ := json.Marshal(msg)
@@ -91,14 +97,85 @@ func BroadcastUAVStatus(uavID uint64, status string, message string) {
 func BroadcastMissionProgress(uavID uint64, missionID uint64, currentWP int, totalWP int, progress float64) {
 	data := gin.H{
 		"uav_id":      uavID,
+		"uavId":       uavID,
 		"mission_id":  missionID,
+		"missionId":   missionID,
 		"current_wp":  currentWP,
+		"currentWaypoint": currentWP,
 		"total_wp":    totalWP,
+		"totalWaypoints": totalWP,
 		"progress":    progress,
 		"timestamp":   time.Now().UnixNano() / 1e6,
 	}
 
-	telemetryHub.BroadcastMissionUpdate(uavID, data)
+	telemetryHub.BroadcastMissionProgress(uavID, data)
+}
+
+func BroadcastMissionProgressSimple(uavID uint64, currentWP int, totalWP int) {
+	var progress float64
+	if totalWP > 0 {
+		progress = float64(currentWP) / float64(totalWP)
+	}
+	BroadcastMissionProgress(uavID, 0, currentWP, totalWP, progress)
+}
+
+func BroadcastWaypointReached(uavID uint64, wpIndex int) {
+	data := gin.H{
+		"uav_id":    uavID,
+		"uavId":     uavID,
+		"wp_index":  wpIndex,
+		"waypointIndex": wpIndex,
+		"timestamp": time.Now().UnixNano() / 1e6,
+	}
+	telemetryHub.BroadcastWaypointReached(uavID, data)
+}
+
+func BroadcastMissionStatus(uavID uint64, status string, currentWP int, totalWP int) {
+	data := gin.H{
+		"uav_id":            uavID,
+		"uavId":             uavID,
+		"status":            status,
+		"current_wp":        currentWP,
+		"currentWaypoint":   currentWP,
+		"total_wp":          totalWP,
+		"totalWaypoints":    totalWP,
+		"timestamp":         time.Now().UnixNano() / 1e6,
+	}
+	telemetryHub.BroadcastMissionStatus(uavID, data)
+}
+
+func BroadcastUAVMode(uavID uint64, mode string) {
+	data := gin.H{
+		"uav_id":    uavID,
+		"uavId":     uavID,
+		"mode":      mode,
+		"timestamp": time.Now().UnixNano() / 1e6,
+	}
+	telemetryHub.BroadcastUAVMode(uavID, data)
+}
+
+func BroadcastBattery(uavID uint64, voltage float64, remaining float64) {
+	data := gin.H{
+		"uav_id":    uavID,
+		"uavId":     uavID,
+		"voltage":   voltage,
+		"remaining": remaining,
+		"timestamp": time.Now().UnixNano() / 1e6,
+	}
+	telemetryHub.BroadcastBattery(uavID, data)
+}
+
+func BroadcastGeofenceViolation(uavID uint64, fenceID uint64, latitude float64, longitude float64) {
+	data := gin.H{
+		"uav_id":    uavID,
+		"uavId":     uavID,
+		"fence_id":  fenceID,
+		"fenceId":   fenceID,
+		"latitude":  latitude,
+		"longitude": longitude,
+		"timestamp": time.Now().UnixNano() / 1e6,
+	}
+	telemetryHub.BroadcastGeofenceViolation(uavID, data)
 }
 
 func GetRealtimeData(uavID uint64) (map[string]interface{}, error) {
@@ -108,5 +185,3 @@ func GetRealtimeData(uavID uint64) (map[string]interface{}, error) {
 func GetAllRealtimeData() (map[string]interface{}, error) {
 	return flightService.GetAllRealtimeData()
 }
-
-import "github.com/gin-gonic/gin"
