@@ -33,10 +33,12 @@ import {
 } from '@ant-design/icons'
 import FlightMap from '@/components/FlightMap'
 import MissionEditor from '@/components/MissionEditor'
+import MissionPreview3D from '@/components/MissionPreview3D'
 import { useMission } from '@/hooks/useMission'
 import { useUAV } from '@/hooks/useUAV'
 import { formatDistance, formatDuration } from '@/utils'
 import type { Waypoint, Mission as MissionType, WaypointAction } from '@/types'
+import { ThreeDOutlined, GlobalOutlined } from '@ant-design/icons'
 
 const Container = styled.div`
   width: 100%;
@@ -232,6 +234,7 @@ const Mission: React.FC<MissionProps> = ({ missionId }) => {
   const [editMode, setEditMode] = useState<'add' | 'edit' | 'none'>('none')
   const [selectedWaypoint, setSelectedWaypoint] = useState<Waypoint | null>(null)
   const [missionFormVisible, setMissionFormVisible] = useState(false)
+  const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d')
   const [form] = Form.useForm()
 
   useEffect(() => {
@@ -593,54 +596,73 @@ const Mission: React.FC<MissionProps> = ({ missionId }) => {
               icon={<PlusOutlined />}
               onClick={() => setEditMode(editMode === 'add' ? 'none' : 'add')}
               title="添加航点"
+              disabled={viewMode === '3d'}
             />
             <ToolButton
               className={editMode === 'edit' ? 'active' : ''}
               icon={<EditOutlined />}
               onClick={() => setEditMode(editMode === 'edit' ? 'none' : 'edit')}
               title="编辑航点"
+              disabled={viewMode === '3d'}
             />
             <ToolButton
-              icon={<EyeOutlined />}
-              title="查看航线"
+              className={viewMode === '2d' ? 'active' : ''}
+              icon={<GlobalOutlined />}
+              onClick={() => setViewMode('2d')}
+              title="2D地图视图"
+            />
+            <ToolButton
+              className={viewMode === '3d' ? 'active' : ''}
+              icon={<ThreeDOutlined />}
+              onClick={() => setViewMode('3d')}
+              title="3D航线预览"
             />
             <ToolButton
               icon={<ImportOutlined />}
               title="导入航点"
+              disabled={viewMode === '3d'}
             />
           </Toolbar>
 
-          <FlightMap
-            editable={editMode !== 'none'}
-            showMission
-            showTrajectory={false}
-            onWaypointAdd={handleWaypointAdd}
-            onWaypointUpdate={handleWaypointUpdate}
-            onWaypointDelete={handleWaypointDelete}
-          />
+          {viewMode === '2d' ? (
+            <FlightMap
+              editable={editMode !== 'none'}
+              showMission
+              showTrajectory={false}
+              onWaypointAdd={handleWaypointAdd}
+              onWaypointUpdate={handleWaypointUpdate}
+              onWaypointDelete={handleWaypointDelete}
+            />
+          ) : (
+            <MissionPreview3D
+              waypoints={waypoints}
+            />
+          )}
 
-          <StatsBar>
-            <StatItem>
-              <StatLabel>航点数量</StatLabel>
-              <StatValue>{waypoints.length}</StatValue>
-            </StatItem>
-            <StatItem>
-              <StatLabel>总航程</StatLabel>
-              <StatValue>{formatDistance(stats.distance)}</StatValue>
-            </StatItem>
-            <StatItem>
-              <StatLabel>预计时间</StatLabel>
-              <StatValue>{formatDuration(stats.duration)}</StatValue>
-            </StatItem>
-            <StatItem>
-              <StatLabel>最高高度</StatLabel>
-              <StatValue>{stats.maxAltitude.toFixed(1)} m</StatValue>
-            </StatItem>
-            <StatItem>
-              <StatLabel>最低高度</StatLabel>
-              <StatValue>{stats.minAltitude.toFixed(1)} m</StatValue>
-            </StatItem>
-          </StatsBar>
+          {viewMode === '2d' && (
+            <StatsBar>
+              <StatItem>
+                <StatLabel>航点数量</StatLabel>
+                <StatValue>{waypoints.length}</StatValue>
+              </StatItem>
+              <StatItem>
+                <StatLabel>总航程</StatLabel>
+                <StatValue>{formatDistance(stats.distance)}</StatValue>
+              </StatItem>
+              <StatItem>
+                <StatLabel>预计时间</StatLabel>
+                <StatValue>{formatDuration(stats.duration)}</StatValue>
+              </StatItem>
+              <StatItem>
+                <StatLabel>最高高度</StatLabel>
+                <StatValue>{stats.maxAltitude.toFixed(1)} m</StatValue>
+              </StatItem>
+              <StatItem>
+                <StatLabel>最低高度</StatLabel>
+                <StatValue>{stats.minAltitude.toFixed(1)} m</StatValue>
+              </StatItem>
+            </StatsBar>
+          )}
         </MapContainer>
 
         <EditorContainer>
