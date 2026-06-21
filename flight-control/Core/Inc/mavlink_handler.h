@@ -65,4 +65,8 @@ void mavlink_send_geofence_violation(uint16_t fence_id, uint8_t violation_type,
                                      uint8_t severity, float distance,
                                      float lat, float lon, float alt);
 
+void mavlink_send_log_entry(uint16_t id, uint32_t num_logs, uint32_t latest_log_num,
+                            uint32_t size, uint32_t time_utc);
+void mavlink_send_log_data(uint16_t id, uint32_t offset, uint8_t count, const uint8_t *data);
+
 #endif

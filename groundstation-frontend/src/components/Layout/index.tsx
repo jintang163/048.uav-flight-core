@@ -33,7 +33,8 @@ import {
   SunOutlined,
   TeamOutlined,
   ScanOutlined,
-  CameraOutlined
+  CameraOutlined,
+  ThunderboltOutlined
 } from '@ant-design/icons'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '@/store'
@@ -284,6 +285,11 @@ const MainLayout: React.FC = () => {
       label: '载荷任务管理'
     },
     {
+      key: 'blackbox',
+      icon: <ThunderboltOutlined />,
+      label: '飞行日志黑匣子'
+    },
+    {
       key: 'alert-center',
       icon: <BellOutlined />,
       label: '告警中心'
@@ -348,6 +354,7 @@ const MainLayout: React.FC = () => {
     'formation': '编队控制',
     'ai-vision': 'AI视觉追踪',
     'payload-missions': '载荷任务管理',
+    'blackbox': '飞行日志黑匣子',
     'alert-center': '告警中心',
     'firmware': '固件管理',
     'settings': '系统设置'

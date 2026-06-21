@@ -29,6 +29,8 @@ const Firmware = lazy(() => import('@/pages/Firmware'))
 const Settings = lazy(() => import('@/pages/Settings'))
 const Formation = lazy(() => import('@/pages/Formation'))
 const AIVisual = lazy(() => import('@/pages/AIVisual'))
+const Blackbox = lazy(() => import('@/pages/Blackbox'))
+const BlackboxDetail = lazy(() => import('@/pages/BlackboxDetail'))
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAppSelector(state => state.auth)
@@ -160,6 +162,22 @@ const routes: RouteObject[] = [
         element: (
           <Suspense fallback={<Loading />}>
             <Settings />
+          </Suspense>
+        )
+      },
+      {
+        path: 'blackbox',
+        element: (
+          <Suspense fallback={<Loading />}>
+            <Blackbox />
+          </Suspense>
+        )
+      },
+      {
+        path: 'blackbox/:id',
+        element: (
+          <Suspense fallback={<Loading />}>
+            <BlackboxDetail />
           </Suspense>
         )
       }

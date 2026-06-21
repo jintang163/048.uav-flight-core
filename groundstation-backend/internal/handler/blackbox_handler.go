@@ -2,60 +2,58 @@ package handler
 
 import (
 	"net/http"
+	"time"
+
 	"groundstation-backend/internal/middleware"
 	"groundstation-backend/internal/models"
 	"groundstation-backend/internal/repository"
+	"groundstation-backend/internal/service"
 	"groundstation-backend/pkg/utils"
+
 	"github.com/gin-gonic/gin"
-	"time"
 )
 
+var blackboxService = service.NewBlackboxService()
 var blackboxRepo = repository.NewBlackboxRepository()
 
 type UploadLogRequest struct {
-	UAVID       uint64                `form:"uav_id" binding:"required"`
-	MissionID   uint64                `form:"mission_id"`
-	LogType     models.BlackboxType   `form:"log_type" binding:"required"`
-	StartTime   string                `form:"start_time"`
-	EndTime     string                `form:"end_time"`
-	Notes       string                `form:"notes"`
+	UAVID      uint64 `form:"uav_id" binding:"required"`
+	MissionID  uint64 `form:"mission_id"`
+	LogType    string `form:"log_type"`
+	StartTime  string `form:"start_time"`
+	EndTime    string `form:"end_time"`
+	FlightName string `form:"flight_name"`
+	Notes      string `form:"notes"`
 }
 
 func UploadBlackbox(c *gin.Context) {
-	uavID, _ := utils.ParseUint64(c.PostForm("uav_id"))
-	missionID, _ := utils.ParseUint64(c.PostForm("mission_id"))
-	logType := c.PostForm("log_type")
-	startTime := c.PostForm("start_time")
-	endTime := c.PostForm("end_time")
-	notes := c.PostForm("notes")
+	var req UploadLogRequest
+	if err := c.ShouldBind(&req); err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "参数错误: "+err.Error(), nil)
+		return
+	}
 
 	file, err := c.FormFile("file")
 	if err != nil {
-		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "请选择文件", nil)
+		utils.ErrorResponse(c, http.StatusBadRequest, 400002, "请选择文件", nil)
 		return
 	}
 
 	userID := middleware.GetCurrentUserID(c)
 
-	objectName := ""
-	if file != nil {
-		objectName = "blackbox/" + utils.GenerateUUID() + ".ulg"
+	serviceReq := &service.UploadLogRequest{
+		UAVID:      req.UAVID,
+		MissionID:  req.MissionID,
+		LogType:    req.LogType,
+		StartTime:  req.StartTime,
+		EndTime:    req.EndTime,
+		FlightName: req.FlightName,
+		Notes:      req.Notes,
+		File:       file,
 	}
 
-	log := &models.BlackboxLog{
-		UAVID:      uavID,
-		MissionID:  missionID,
-		LogType:    models.BlackboxType(logType),
-		FileURL:    objectName,
-		FileSize:   file.Size,
-		StartTime:  startTime,
-		EndTime:    endTime,
-		Notes:      notes,
-		UploaderID: userID,
-		Status:     models.BlackboxStatusUploaded,
-	}
-
-	if err := blackboxRepo.Create(log); err != nil {
+	log, err := blackboxService.UploadLog(serviceReq, userID)
+	if err != nil {
 		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, err.Error(), nil)
 		return
 	}
@@ -70,7 +68,7 @@ func GetBlackbox(c *gin.Context) {
 		return
 	}
 
-	log, err := blackboxRepo.FindByID(id)
+	log, err := blackboxService.GetLog(id)
 	if err != nil {
 		utils.ErrorResponse(c, http.StatusNotFound, 404001, "日志不存在", nil)
 		return
@@ -83,12 +81,16 @@ func ListBlackboxes(c *gin.Context) {
 	pagination := utils.GeneratePaginationFromRequest(c)
 	uavID, _ := utils.ParseUint64(c.Query("uav_id"))
 	missionID, _ := utils.ParseUint64(c.Query("mission_id"))
-	logType := c.Query("log_type")
 	status := c.Query("status")
-	startTime := c.Query("start_time")
-	endTime := c.Query("end_time")
+	crashStr := c.Query("crash_detected")
 
-	logs, total, err := blackboxRepo.List(pagination, uavID, missionID, logType, status, startTime, endTime)
+	var crashDetected *bool
+	if crashStr != "" {
+		crash := crashStr == "true" || crashStr == "1"
+		crashDetected = &crash
+	}
+
+	logs, total, err := blackboxService.ListLogs(pagination, uavID, missionID, models.BlackboxLogStatus(status), crashDetected)
 	if err != nil {
 		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, err.Error(), nil)
 		return
@@ -105,16 +107,16 @@ func UpdateBlackbox(c *gin.Context) {
 	}
 
 	var data struct {
-		Status         models.BlackboxStatus `json:"status"`
-		AnalysisReport string                `json:"analysis_report"`
-		Notes          string                `json:"notes"`
+		Status models.BlackboxLogStatus `json:"status"`
+		Notes  string                   `json:"notes"`
+		Tags   string                   `json:"tags"`
 	}
 	if err := c.ShouldBindJSON(&data); err != nil {
 		utils.ErrorResponse(c, http.StatusBadRequest, 400002, "参数错误: "+err.Error(), nil)
 		return
 	}
 
-	log, err := blackboxRepo.FindByID(id)
+	log, err := blackboxService.GetLog(id)
 	if err != nil {
 		utils.ErrorResponse(c, http.StatusNotFound, 404001, "日志不存在", nil)
 		return
@@ -123,12 +125,11 @@ func UpdateBlackbox(c *gin.Context) {
 	if data.Status != "" {
 		log.Status = data.Status
 	}
-	if data.AnalysisReport != "" {
-		log.AnalysisReport = data.AnalysisReport
-		log.AnalyzedAt = time.Now()
-	}
 	if data.Notes != "" {
 		log.Notes = data.Notes
+	}
+	if data.Tags != "" {
+		log.Tags = data.Tags
 	}
 
 	if err := blackboxRepo.Update(log); err != nil {
@@ -146,7 +147,7 @@ func DeleteBlackbox(c *gin.Context) {
 		return
 	}
 
-	if err := blackboxRepo.SoftDelete(&models.BlackboxLog{}, id); err != nil {
+	if err := blackboxService.DeleteLog(id); err != nil {
 		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, err.Error(), nil)
 		return
 	}
@@ -161,13 +162,13 @@ func DownloadBlackbox(c *gin.Context) {
 		return
 	}
 
-	log, err := blackboxRepo.FindByID(id)
+	log, err := blackboxService.GetLog(id)
 	if err != nil {
 		utils.ErrorResponse(c, http.StatusNotFound, 404001, "日志不存在", nil)
 		return
 	}
 
-	utils.SuccessResponse(c, "获取成功", gin.H{"download_url": log.FileURL})
+	utils.SuccessResponse(c, "获取成功", gin.H{"download_url": log.FileURL, "file_name": log.FileName})
 }
 
 func GetBlackboxStatistics(c *gin.Context) {
@@ -175,11 +176,129 @@ func GetBlackboxStatistics(c *gin.Context) {
 	startTime := c.Query("start_time")
 	endTime := c.Query("end_time")
 
-	stats, err := blackboxRepo.GetStatistics(uavID, startTime, endTime)
+	var start, end time.Time
+	if startTime != "" {
+		start, _ = time.Parse(time.RFC3339, startTime)
+	}
+	if endTime != "" {
+		end, _ = time.Parse(time.RFC3339, endTime)
+	}
+
+	stats, err := blackboxService.GetStatistics(uavID, start, end)
 	if err != nil {
 		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, err.Error(), nil)
 		return
 	}
 
 	utils.SuccessResponse(c, "获取成功", stats)
+}
+
+func ParseBlackboxLog(c *gin.Context) {
+	id, err := utils.ParseUint64(c.Param("id"))
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "无效的日志ID", nil)
+		return
+	}
+
+	data, err := blackboxService.ParseLog(id)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, "解析失败: "+err.Error(), nil)
+		return
+	}
+
+	utils.SuccessResponse(c, "解析成功", data)
+}
+
+func GetAnalysisReport(c *gin.Context) {
+	id, err := utils.ParseUint64(c.Param("id"))
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "无效的日志ID", nil)
+		return
+	}
+
+	report, err := blackboxService.GenerateAnalysisReport(id)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, "生成报告失败: "+err.Error(), nil)
+		return
+	}
+
+	utils.SuccessResponse(c, "获取成功", report)
+}
+
+func ExportBlackboxCSV(c *gin.Context) {
+	id, err := utils.ParseUint64(c.Param("id"))
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "无效的日志ID", nil)
+		return
+	}
+
+	filePath, err := blackboxService.ExportCSV(id)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, "导出失败: "+err.Error(), nil)
+		return
+	}
+
+	c.FileAttachment(filePath, "flight_log.csv")
+}
+
+func ExportBlackboxReport(c *gin.Context) {
+	id, err := utils.ParseUint64(c.Param("id"))
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "无效的日志ID", nil)
+		return
+	}
+
+	filePath, err := blackboxService.ExportPDF(id)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, "导出失败: "+err.Error(), nil)
+		return
+	}
+
+	c.FileAttachment(filePath, "flight_report.txt")
+}
+
+func GetBlackboxReports(c *gin.Context) {
+	id, err := utils.ParseUint64(c.Param("id"))
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "无效的日志ID", nil)
+		return
+	}
+
+	reports, err := blackboxService.GetReports(id)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, err.Error(), nil)
+		return
+	}
+
+	utils.SuccessResponse(c, "获取成功", reports)
+}
+
+func AnalyzeBlackbox(c *gin.Context) {
+	id, err := utils.ParseUint64(c.Param("id"))
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "无效的日志ID", nil)
+		return
+	}
+
+	go func() {
+		_, _ = blackboxService.GenerateAnalysisReport(id)
+	}()
+
+	utils.SuccessResponse(c, "分析已开始", nil)
+}
+
+func AutoUploadBlackbox(c *gin.Context) {
+	var req service.AutoUploadRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "参数错误: "+err.Error(), nil)
+		return
+	}
+
+	log, err := blackboxService.AutoUpload(&req)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, "自动上传失败: "+err.Error(), nil)
+		return
+	}
+
+	utils.SuccessResponse(c, "自动上传成功", log)
 }

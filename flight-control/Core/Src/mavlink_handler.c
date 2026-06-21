@@ -4,6 +4,7 @@
 #include "mission_manager.h"
 #include "task_attitude_estimation.h"
 #include "motor_control.h"
+#include "blackbox_logger.h"
 #include "types.h"
 
 static MAVLinkHandlerData mavlink_data;
@@ -102,6 +103,18 @@ void mavlink_handler_process_message(mavlink_message_t *msg)
                 mavlink_msg_mission_set_current_decode(msg, &current);
                 mission_manager_goto_waypoint(current.seq);
             }
+            break;
+
+        case MAVLINK_MSG_ID_LOG_REQUEST_LIST:
+            mavlink_handler_handle_log_request_list(msg);
+            break;
+
+        case MAVLINK_MSG_ID_LOG_REQUEST_DATA:
+            mavlink_handler_handle_log_request_data(msg);
+            break;
+
+        case MAVLINK_MSG_ID_LOG_REQUEST_END:
+            mavlink_handler_handle_log_request_end(msg);
             break;
 
         default:
@@ -441,4 +454,114 @@ void mavlink_send_geofence_violation(uint16_t fence_id, uint8_t violation_type,
     mavlink_send_statustext(severity == 0 ? MAV_SEVERITY_WARNING : 
                             severity == 1 ? MAV_SEVERITY_CRITICAL : MAV_SEVERITY_EMERGENCY,
                             text);
+}
+
+static uint16_t log_transfer_id = 0;
+static uint32_t log_transfer_offset = 0;
+static uint32_t log_transfer_size = 0;
+static bool log_transfer_active = false;
+
+void mavlink_handler_handle_log_request_list(mavlink_message_t *msg)
+{
+    mavlink_log_request_list_t req;
+    mavlink_msg_log_request_list_decode(msg, &req);
+
+    BlackboxInfo info;
+    blackbox_get_info(&info);
+
+    mavlink_send_log_entry(
+        0,
+        1,
+        0,
+        info.total_entries * sizeof(BlackboxLogEntry),
+        info.start_time
+    );
+}
+
+void mavlink_handler_handle_log_request_data(mavlink_message_t *msg)
+{
+    mavlink_log_request_data_t req;
+    mavlink_msg_log_request_data_decode(msg, &req);
+
+    BlackboxInfo info;
+    blackbox_get_info(&info);
+
+    uint32_t total_size = info.total_entries * sizeof(BlackboxLogEntry);
+
+    if (req.id != 0) {
+        return;
+    }
+
+    log_transfer_id = req.id;
+    log_transfer_offset = req.offset;
+    log_transfer_size = total_size;
+    log_transfer_active = true;
+
+    uint32_t bytes_remaining = total_size - req.offset;
+    uint32_t bytes_to_send = (bytes_remaining < req.count) ? bytes_remaining : req.count;
+    uint8_t chunk_size = 90;
+
+    for (uint32_t sent = 0; sent < bytes_to_send; sent += chunk_size) {
+        uint32_t chunk_len = bytes_to_send - sent;
+        if (chunk_len > chunk_size) {
+            chunk_len = chunk_size;
+        }
+
+        uint8_t data[90];
+        blackbox_read_data(req.offset + sent, data, chunk_len);
+
+        mavlink_send_log_data(
+            req.id,
+            req.offset + sent,
+            (uint8_t)chunk_len,
+            data
+        );
+    }
+}
+
+void mavlink_handler_handle_log_request_end(mavlink_message_t *msg)
+{
+    log_transfer_active = false;
+    log_transfer_id = 0;
+    log_transfer_offset = 0;
+    log_transfer_size = 0;
+}
+
+void mavlink_send_log_entry(uint16_t id, uint32_t num_logs, uint32_t latest_log_num,
+                            uint32_t size, uint32_t time_utc)
+{
+    mavlink_message_t msg;
+    mavlink_msg_log_entry_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        id,
+        num_logs,
+        latest_log_num,
+        size,
+        time_utc
+    );
+    mavlink_send_message(&msg);
+}
+
+void mavlink_send_log_data(uint16_t id, uint32_t offset, uint8_t count, const uint8_t *data)
+{
+    mavlink_message_t msg;
+    uint8_t log_data[90];
+    
+    memset(log_data, 0, sizeof(log_data));
+    if (count > 0 && data != NULL) {
+        memcpy(log_data, data, count > 90 ? 90 : count);
+    }
+    
+    mavlink_msg_log_data_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        id,
+        offset,
+        count,
+        log_data
+    );
+    mavlink_send_message(&msg);
 }

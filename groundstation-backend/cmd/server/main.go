@@ -251,12 +251,19 @@ func main() {
 		blackbox := api.Group("/blackbox", middleware.JWTAuth())
 		{
 			blackbox.POST("", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UploadBlackbox)
+			blackbox.POST("/auto-upload", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.AutoUploadBlackbox)
 			blackbox.GET("", handler.ListBlackboxes)
 			blackbox.GET("/statistics", handler.GetBlackboxStatistics)
 			blackbox.GET("/:id", handler.GetBlackbox)
 			blackbox.PUT("/:id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UpdateBlackbox)
 			blackbox.DELETE("/:id", middleware.RoleAuth(models.UserRoleAdmin), handler.DeleteBlackbox)
 			blackbox.GET("/:id/download", handler.DownloadBlackbox)
+			blackbox.GET("/:id/parse", handler.ParseBlackboxLog)
+			blackbox.GET("/:id/analysis", handler.GetAnalysisReport)
+			blackbox.POST("/:id/analyze", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.AnalyzeBlackbox)
+			blackbox.GET("/:id/export/csv", handler.ExportBlackboxCSV)
+			blackbox.GET("/:id/export/report", handler.ExportBlackboxReport)
+			blackbox.GET("/:id/reports", handler.GetBlackboxReports)
 		}
 
 		formation := api.Group("/formations", middleware.JWTAuth())
