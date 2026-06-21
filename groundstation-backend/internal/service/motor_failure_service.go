@@ -1,13 +1,12 @@
 package service
 
 import (
-	"encoding/binary"
-	"errors"
 	"fmt"
 	"groundstation-backend/internal/mavlink"
 	"groundstation-backend/internal/middleware"
 	"groundstation-backend/internal/models"
 	"groundstation-backend/internal/repository"
+	"math"
 	"sync"
 	"time"
 
@@ -15,24 +14,47 @@ import (
 )
 
 type MotorFailureService struct {
-	mu            sync.RWMutex
-	motorStatus   map[uint64]map[int]*models.MotorStatus
-	motorHistory  map[uint64]map[int][]int
-	failureState  map[uint64]*MotorFailureState
-	motorCount    map[uint64]int
-	alertService  *AlertService
-	uavService    *UAVService
-	flightService *FlightService
+	mu                 sync.RWMutex
+	motorStatus        map[uint64]map[int]*models.MotorStatus
+	motorHistory       map[uint64]map[int][]int
+	motorCurrentHist   map[uint64]map[int][]float64
+	failureState       map[uint64]*MotorFailureState
+	motorCount         map[uint64]int
+	lastFailureTime    map[uint64]map[int]time.Time
+	alertService       *AlertService
 }
 
 type MotorFailureState struct {
-	UAVID          uint64
-	FailedMotors   []int
-	PIDAdjusted    bool
-	RTHTriggered   bool
-	StartTime      time.Time
-	LastUpdateTime time.Time
+	UAVID            uint64
+	FailedMotors     []int
+	PIDAdjusted      bool
+	RTHTriggered     bool
+	MixingRecalc     bool
+	StartTime        time.Time
+	LastUpdateTime   time.Time
+	PIDAdjustments   PIDGain
+	MixingMatrix     [][]float64
+	OriginalMixing   [][]float64
 }
+
+type PIDGain struct {
+	RollP, RollI, RollD   float32
+	PitchP, PitchI, PitchD float32
+	YawP, YawI, YawD      float32
+}
+
+const (
+	motorTypeM6  = 6
+	motorTypeX8  = 8
+	motorTypeO8  = 8
+
+	rpmMinThreshold          = 800
+	tempCriticalThresholdC   = 110
+	tempWarningThresholdC    = 90
+	currentMaxThresholdA     = 45
+	consecutiveFaultRequired = 3
+	cooldownBetweenFailures  = 5 * time.Second
+)
 
 var motorFailureService *MotorFailureService
 var motorFailureOnce sync.Once
@@ -40,13 +62,13 @@ var motorFailureOnce sync.Once
 func NewMotorFailureService() *MotorFailureService {
 	motorFailureOnce.Do(func() {
 		motorFailureService = &MotorFailureService{
-			motorStatus:   make(map[uint64]map[int]*models.MotorStatus),
-			motorHistory:  make(map[uint64]map[int][]int),
-			failureState:  make(map[uint64]*MotorFailureState),
-			motorCount:    make(map[uint64]int),
-			alertService:  NewAlertService(),
-			uavService:    NewUAVService(),
-			flightService: NewFlightService(),
+			motorStatus:      make(map[uint64]map[int]*models.MotorStatus),
+			motorHistory:     make(map[uint64]map[int][]int),
+			motorCurrentHist: make(map[uint64]map[int][]float64),
+			failureState:     make(map[uint64]*MotorFailureState),
+			motorCount:       make(map[uint64]int),
+			lastFailureTime:  make(map[uint64]map[int]time.Time),
+			alertService:     NewAlertService(),
 		}
 	})
 	return motorFailureService
@@ -64,15 +86,28 @@ func (s *MotorFailureService) UpdateMotorStatus(uavID uint64, status *models.Mot
 	if _, ok := s.motorHistory[uavID]; !ok {
 		s.motorHistory[uavID] = make(map[int][]int)
 	}
-	history := s.motorHistory[uavID][status.MotorIndex]
-	history = append(history, status.RPM)
-	if len(history) > 30 {
-		history = history[len(history)-30:]
+	if _, ok := s.motorCurrentHist[uavID]; !ok {
+		s.motorCurrentHist[uavID] = make(map[int][]float64)
 	}
-	s.motorHistory[uavID][status.MotorIndex] = history
+	if _, ok := s.lastFailureTime[uavID]; !ok {
+		s.lastFailureTime[uavID] = make(map[int]time.Time)
+	}
 
-	motorCount := len(s.motorStatus[uavID])
-	s.motorCount[uavID] = motorCount
+	rpmHistory := s.motorHistory[uavID][status.MotorIndex]
+	rpmHistory = append(rpmHistory, status.RPM)
+	if len(rpmHistory) > 20 {
+		rpmHistory = rpmHistory[len(rpmHistory)-20:]
+	}
+	s.motorHistory[uavID][status.MotorIndex] = rpmHistory
+
+	curHistory := s.motorCurrentHist[uavID][status.MotorIndex]
+	curHistory = append(curHistory, status.Current)
+	if len(curHistory) > 20 {
+		curHistory = curHistory[len(curHistory)-20:]
+	}
+	s.motorCurrentHist[uavID][status.MotorIndex] = curHistory
+
+	s.motorCount[uavID] = len(s.motorStatus[uavID])
 
 	return nil
 }
@@ -92,39 +127,84 @@ func (s *MotorFailureService) UpdateMotorInfo(uavID uint64, motorIndex int, vend
 	return nil
 }
 
-func (s *MotorFailureService) DetectMotorFailure(uavID uint64, motorIndex int, status *models.MotorStatus) (bool, error) {
+func (s *MotorFailureService) DetectMotorFailure(uavID uint64, motorIndex int, status *models.MotorStatus) (bool, models.MotorStatusType) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	motorCount := s.motorCount[uavID]
 	if motorCount < 6 {
-		return false, nil
+		return false, ""
 	}
 
-	if status.Status != models.MotorStatusFault {
-		return false, nil
+	rpmHistory := s.motorHistory[uavID][motorIndex]
+	curHistory := s.motorCurrentHist[uavID][motorIndex]
+
+	isFault := false
+	isWarning := false
+
+	if status.FaultFlags > 0 {
+		isFault = true
 	}
 
-	history := s.motorHistory[uavID][motorIndex]
-	consecutiveZeros := 0
-	for i := len(history) - 1; i >= 0; i-- {
-		if history[i] == 0 {
-			consecutiveZeros++
-		} else {
-			break
+	if len(rpmHistory) >= consecutiveFaultRequired && status.Throttle > 5.0 {
+		consecutiveLowRPM := 0
+		for i := len(rpmHistory) - 1; i >= 0 && consecutiveLowRPM < consecutiveFaultRequired; i-- {
+			if rpmHistory[i] < rpmMinThreshold {
+				consecutiveLowRPM++
+			} else {
+				break
+			}
+		}
+		if consecutiveLowRPM >= consecutiveFaultRequired {
+			isFault = true
 		}
 	}
 
-	isFailure := consecutiveZeros >= 3 || status.FaultFlags > 0
-	if !isFailure {
-		return false, nil
+	if status.Temperature > tempCriticalThresholdC {
+		isFault = true
+	} else if status.Temperature > tempWarningThresholdC {
+		isWarning = true
 	}
+
+	if len(curHistory) >= 5 {
+		avgCurrent := 0.0
+		for i := len(curHistory) - 5; i < len(curHistory); i++ {
+			avgCurrent += curHistory[i]
+		}
+		avgCurrent /= 5.0
+		if avgCurrent > currentMaxThresholdA {
+			isWarning = true
+		}
+		if status.Voltage > 0 && status.Throttle > 10.0 && status.Current < 0.5 && status.RPM < rpmMinThreshold {
+			isFault = true
+		}
+	}
+
+	var statusOverride models.MotorStatusType
+	if isFault {
+		statusOverride = models.MotorStatusFault
+	} else if isWarning {
+		statusOverride = models.MotorStatusWarning
+	} else {
+		statusOverride = models.MotorStatusNormal
+	}
+
+	if !isFault {
+		return false, statusOverride
+	}
+
+	lastTime, ok := s.lastFailureTime[uavID][motorIndex]
+	if ok && time.Since(lastTime) < cooldownBetweenFailures {
+		return false, statusOverride
+	}
+	s.lastFailureTime[uavID][motorIndex] = time.Now()
 
 	failureState, exists := s.failureState[uavID]
 	if !exists {
 		failureState = &MotorFailureState{
 			UAVID:     uavID,
 			StartTime: time.Now(),
+			OriginalMixing: buildStandardMixingMatrix(motorCount),
 		}
 		s.failureState[uavID] = failureState
 	}
@@ -143,101 +223,327 @@ func (s *MotorFailureService) DetectMotorFailure(uavID uint64, motorIndex int, s
 
 	remainingMotors := motorCount - len(failureState.FailedMotors)
 	if remainingMotors < 4 {
-		middleware.Logger.Error("Critical: too many motor failures for controlled flight",
+		middleware.Logger.Error("CRITICAL: Too many motor failures for controlled flight",
 			zap.Uint64("uav_id", uavID),
 			zap.Int("failed_count", len(failureState.FailedMotors)),
 			zap.Int("total_count", motorCount),
 		)
 	}
 
-	if !failureState.PIDAdjusted && motorCount >= 6 && remainingMotors >= 4 {
-		s.adjustPIDParameters(uavID, failureState.FailedMotors, motorCount)
-		failureState.PIDAdjusted = true
-	}
+	status.Status = statusOverride
+	s.motorStatus[uavID][motorIndex] = status
 
-	return true, nil
+	middleware.Logger.Warn("Motor failure detected",
+		zap.Uint64("uav_id", uavID),
+		zap.Int("motor_index", motorIndex),
+		zap.Int("rpm", status.RPM),
+		zap.Int("temperature", status.Temperature),
+		zap.Int("fault_flags", status.FaultFlags),
+		zap.Float64("current", status.Current),
+	)
+
+	return true, statusOverride
 }
 
-func (s *MotorFailureService) adjustPIDParameters(uavID uint64, failedMotors []int, totalMotors int) {
-	cm := mavlink.NewCommandManager()
-
-	type PIDConfig struct {
-		P   float32
-		I   float32
-		D   float32
+func buildStandardMixingMatrix(motorCount int) [][]float64 {
+	matrix := make([][]float64, motorCount)
+	for i := range matrix {
+		matrix[i] = make([]float64, 4)
 	}
 
-	pidAdjustments := map[int]PIDConfig{
-		6:  {P: 1.15, I: 1.10, D: 1.05},
-		8:  {P: 1.10, I: 1.08, D: 1.03},
-		10: {P: 1.08, I: 1.05, D: 1.02},
+	switch motorCount {
+	case 6:
+		for i := 0; i < 6; i++ {
+			angle := float64(i) * math.Pi / 3.0
+			matrix[i][0] = 1.0
+			matrix[i][1] = math.Sin(angle)
+			matrix[i][2] = -math.Cos(angle)
+			if i%2 == 0 {
+				matrix[i][3] = -1.0
+			} else {
+				matrix[i][3] = 1.0
+			}
+		}
+	case 8:
+		for i := 0; i < 8; i++ {
+			angle := float64(i) * math.Pi / 4.0
+			matrix[i][0] = 1.0
+			matrix[i][1] = math.Sin(angle)
+			matrix[i][2] = -math.Cos(angle)
+			if i%2 == 0 {
+				matrix[i][3] = -1.0
+			} else {
+				matrix[i][3] = 1.0
+			}
+		}
+	default:
+		for i := 0; i < motorCount; i++ {
+			angle := float64(i) * 2.0 * math.Pi / float64(motorCount)
+			matrix[i][0] = 1.0
+			matrix[i][1] = math.Sin(angle)
+			matrix[i][2] = -math.Cos(angle)
+			if i%2 == 0 {
+				matrix[i][3] = -1.0
+			} else {
+				matrix[i][3] = 1.0
+			}
+		}
+	}
+	return matrix
+}
+
+func (s *MotorFailureService) RecalculateMotorMixing(uavID uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	failureState, ok := s.failureState[uavID]
+	if !ok || failureState.MixingRecalc {
+		return
+	}
+	if failureState.OriginalMixing == nil {
+		failureState.OriginalMixing = buildStandardMixingMatrix(s.motorCount[uavID])
 	}
 
-	adjustment, ok := pidAdjustments[totalMotors]
-	if !ok {
-		adjustment = PIDConfig{P: 1.12, I: 1.08, D: 1.04}
+	motorCount := s.motorCount[uavID]
+	original := failureState.OriginalMixing
+	failedSet := make(map[int]bool)
+	for _, idx := range failureState.FailedMotors {
+		failedSet[idx] = true
 	}
 
-	paramIndices := []struct {
-		index  uint8
-		factor float32
-	}{
-		{0, adjustment.P},
-		{1, adjustment.I},
-		{2, adjustment.D},
-	}
-
-	for _, param := range paramIndices {
-		encoder := mavlink.NewMAVLinkEncoder()
-		cmdData := encoder.EncodeCommandLong(
-			0, uint8(uavID), 0,
-			mavlink.CMD_DO_SET_PARAMETER,
-			param.index, 0, 0,
-			0, 0, 0,
-			float32(param.factor),
-		)
-
-		if err := cm.SendCommand(uavID, cmdData); err != nil {
-			middleware.Logger.Error("Failed to send PID adjustment command",
-				zap.Uint64("uav_id", uavID),
-				zap.Error(err),
-			)
+	remainingCount := motorCount - len(failureState.FailedMotors)
+	remainingIndices := make([]int, 0, remainingCount)
+	for i := 0; i < motorCount; i++ {
+		if !failedSet[i] {
+			remainingIndices = append(remainingIndices, i)
 		}
 	}
 
-	middleware.Logger.Info("PID parameters adjusted for motor failure",
+	reducedMatrix := make([][]float64, remainingCount)
+	reducedIdx := 0
+	for i := 0; i < motorCount; i++ {
+		if !failedSet[i] {
+			reducedMatrix[reducedIdx] = make([]float64, 4)
+			copy(reducedMatrix[reducedIdx], original[i])
+			reducedIdx++
+		}
+	}
+
+	thrustScaleFactor := float64(motorCount) / float64(remainingCount)
+	newMatrix := make([][]float64, motorCount)
+	for i := 0; i < motorCount; i++ {
+		newMatrix[i] = make([]float64, 4)
+	}
+
+	for rIdx, origIdx := range remainingIndices {
+		thrustBias := 1.0
+		if len(failureState.FailedMotors) == 1 {
+			failedIdx := failureState.FailedMotors[0]
+			failedAngle := 2.0 * math.Pi * float64(failedIdx) / float64(motorCount)
+			origAngle := 2.0 * math.Pi * float64(origIdx) / float64(motorCount)
+			angleDiff := math.Cos(origAngle - failedAngle)
+			thrustBias = 1.0 + 0.15*(1.0-angleDiff)
+		}
+
+		for axis := 0; axis < 4; axis++ {
+			if axis == 0 {
+				newMatrix[origIdx][axis] = reducedMatrix[rIdx][axis] * thrustScaleFactor * thrustBias
+			} else {
+				newMatrix[origIdx][axis] = reducedMatrix[rIdx][axis] * 1.15
+			}
+		}
+	}
+
+	failureState.MixingMatrix = newMatrix
+	failureState.MixingRecalc = true
+
+	s.sendMixingParameters(uavID, newMatrix, motorCount)
+
+	middleware.Logger.Info("Motor mixing matrix recalculated",
 		zap.Uint64("uav_id", uavID),
-		zap.Ints("failed_motors", failedMotors),
-		zap.Int("total_motors", totalMotors),
-		zap.Float32("P_factor", adjustment.P),
-		zap.Float32("I_factor", adjustment.I),
-		zap.Float32("D_factor", adjustment.D),
+		zap.Int("failed_motors", len(failureState.FailedMotors)),
+		zap.Float64("thrust_scale", thrustScaleFactor),
 	)
+}
+
+func (s *MotorFailureService) sendMixingParameters(uavID uint64, matrix [][]float64, motorCount int) {
+	cm := mavlink.NewCommandManager()
+
+	paramName := "MOT_"
+	for i := 0; i < motorCount; i++ {
+		for axis := 0; axis < 4; axis++ {
+			axisName := []string{"THR", "ROL", "PIT", "YAW"}[axis]
+			fullName := fmt.Sprintf("%s%d_%s", paramName, i+1, axisName)
+			if len(fullName) > 16 {
+				fullName = fullName[:16]
+			}
+			value := float32(matrix[i][axis])
+			cmdData := mavlink.EncodeParamSet(fullName, value, 9)
+			_ = cm.SendCommand(uavID, cmdData)
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+
+	mixType := uint16(0)
+	switch motorCount {
+	case 6:
+		mixType = 12
+	case 8:
+		mixType = 14
+	}
+	if len(s.failureState[uavID].FailedMotors) > 0 {
+		mixType = 100
+	}
+	cmdData := mavlink.EncodeParamSet("FRAME_CLASS", float32(mixType), 6)
+	_ = cm.SendCommand(uavID, cmdData)
+}
+
+func (s *MotorFailureService) AdjustPIDParameters(uavID uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	failureState, ok := s.failureState[uavID]
+	if !ok || failureState.PIDAdjusted {
+		return
+	}
+
+	motorCount := s.motorCount[uavID]
+	failedCount := len(failureState.FailedMotors)
+	remainingCount := motorCount - failedCount
+
+	if remainingCount < 4 {
+		return
+	}
+
+	pFactor := 1.0
+	iFactor := 1.0
+	dFactor := 1.0
+
+	switch {
+	case motorCount >= 10:
+		pFactor = 1.08
+		iFactor = 1.05
+		dFactor = 1.03
+	case motorCount >= 8:
+		pFactor = 1.12
+		iFactor = 1.08
+		dFactor = 1.05
+	default:
+		pFactor = 1.18
+		iFactor = 1.12
+		dFactor = 1.07
+	}
+
+	degradationRatio := float64(failedCount) / float64(motorCount)
+	pFactor += degradationRatio * 0.15
+	iFactor += degradationRatio * 0.10
+	dFactor += degradationRatio * 0.08
+
+	if failedCount >= 2 {
+		dFactor += 0.05
+	}
+
+	isSymmetric := isFailureSymmetric(failureState.FailedMotors, motorCount)
+	if !isSymmetric {
+		pFactor += 0.05
+		dFactor += 0.10
+	}
+
+	failureState.PIDAdjustments = PIDGain{
+		RollP:  float32(pFactor),
+		RollI:  float32(iFactor),
+		RollD:  float32(dFactor),
+		PitchP: float32(pFactor),
+		PitchI: float32(iFactor),
+		PitchD: float32(dFactor),
+		YawP:   float32(pFactor * 1.05),
+		YawI:   float32(iFactor),
+		YawD:   float32(dFactor * 0.95),
+	}
+	failureState.PIDAdjusted = true
+
+	s.sendPIDParameters(uavID, failureState.PIDAdjustments)
+
+	middleware.Logger.Info("PID parameters adaptively adjusted",
+		zap.Uint64("uav_id", uavID),
+		zap.Int("motor_count", motorCount),
+		zap.Int("failed_count", failedCount),
+		zap.Bool("symmetric", isSymmetric),
+		zap.Float32("p_factor", failureState.PIDAdjustments.RollP),
+		zap.Float32("i_factor", failureState.PIDAdjustments.RollI),
+		zap.Float32("d_factor", failureState.PIDAdjustments.RollD),
+	)
+}
+
+func isFailureSymmetric(failedMotors []int, motorCount int) bool {
+	if len(failedMotors) != 1 && len(failedMotors) != 2 {
+		return false
+	}
+	half := motorCount / 2
+	for _, f := range failedMotors {
+		opposite := (f + half) % motorCount
+		found := false
+		for _, f2 := range failedMotors {
+			if f2 == opposite {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *MotorFailureService) sendPIDParameters(uavID uint64, gains PIDGain) {
+	cm := mavlink.NewCommandManager()
+
+	params := []struct {
+		name  string
+		value float32
+	}{
+		{"ATC_RAT_RLL_P", gains.RollP},
+		{"ATC_RAT_RLL_I", gains.RollI},
+		{"ATC_RAT_RLL_D", gains.RollD},
+		{"ATC_RAT_PIT_P", gains.PitchP},
+		{"ATC_RAT_PIT_I", gains.PitchI},
+		{"ATC_RAT_PIT_D", gains.PitchD},
+		{"ATC_RAT_YAW_P", gains.YawP},
+		{"ATC_RAT_YAW_I", gains.YawI},
+		{"ATC_RAT_YAW_D", gains.YawD},
+		{"ATC_ANG_RLL_P", gains.RollP * 0.9},
+		{"ATC_ANG_PIT_P", gains.PitchP * 0.9},
+	}
+
+	for _, p := range params {
+		cmdData := mavlink.EncodeParamSet(p.name, p.value, 9)
+		if err := cm.SendCommand(uavID, cmdData); err != nil {
+			middleware.Logger.Warn("Failed to send PID param",
+				zap.Uint64("uav_id", uavID),
+				zap.String("param", p.name),
+				zap.Error(err),
+			)
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
 }
 
 func (s *MotorFailureService) TriggerEmergencyRTH(uavID uint64, motorIndex int) error {
 	s.mu.Lock()
 	failureState, exists := s.failureState[uavID]
-	if !exists {
-		s.mu.Unlock()
-		return errors.New("no failure state found")
-	}
-
-	if failureState.RTHTriggered {
+	if exists && failureState.RTHTriggered {
 		s.mu.Unlock()
 		return nil
 	}
-	failureState.RTHTriggered = true
+	if exists {
+		failureState.RTHTriggered = true
+	}
 	s.mu.Unlock()
 
 	cm := mavlink.NewCommandManager()
-	encoder := mavlink.NewMAVLinkEncoder()
-	rthData := encoder.EncodeCommandLong(
-		0, uint8(uavID), 0,
-		mavlink.CMD_NAV_RETURN_TO_LAUNCH,
-		0, 0, 0, 0, 0, 0, 0,
-	)
 
+	rthData := mavlink.EncodeCommandLong(uavID, mavlink.CMD_NAV_RETURN_TO_LAUNCH, 0, 0, 0, 0, 0, 0, 0)
 	if err := cm.SendCommand(uavID, rthData); err != nil {
 		middleware.Logger.Error("Failed to send emergency RTH command",
 			zap.Uint64("uav_id", uavID),
@@ -255,9 +561,10 @@ func (s *MotorFailureService) TriggerEmergencyRTH(uavID uint64, motorIndex int) 
 }
 
 func (s *MotorFailureService) CreateMotorFailureAlert(uavID uint64, motorIndex int, status *models.MotorStatus) (*models.AlertEvent, error) {
-	title := fmt.Sprintf("电机 #%d 失效告警", motorIndex+1)
-	message := fmt.Sprintf("无人机 %d 的电机 #%d 检测到故障。故障标志: 0x%04X, RPM: %d, 温度: %d°C。飞控已自动调整PID参数并触发紧急返航。",
-		uavID, motorIndex+1, status.FaultFlags, status.RPM, status.Temperature)
+	failedMotorLabel := fmt.Sprintf("电机 #%d", motorIndex+1)
+	title := fmt.Sprintf("%s 失效告警", failedMotorLabel)
+	message := fmt.Sprintf("无人机 %d 的 %s 检测到故障。故障标志: 0x%04X, RPM: %d, 温度: %d°C, 电流: %.1fA。飞控已重新分配电机混控并自动调整PID参数，正在执行紧急返航。",
+		uavID, failedMotorLabel, status.FaultFlags, status.RPM, status.Temperature, status.Current)
 
 	alert, err := s.alertService.CreateCustomAlert(uavID, title, message, models.AlertLevelCritical)
 	if err != nil {
@@ -275,7 +582,7 @@ func (s *MotorFailureService) CreateMotorFailureAlert(uavID uint64, motorIndex i
 			RPMAtFailure:  status.RPM,
 			TempAtFailure: status.Temperature,
 			AlertID:       alert.ID,
-			ActionTaken:   "pid_adjusted_rth",
+			ActionTaken:   "mixing_recalc_pid_adjust_rth",
 		}
 		_ = repo.Create(event)
 	}
@@ -336,6 +643,10 @@ func (s *MotorFailureService) ResolveFailure(uavID uint64, motorIndex int) error
 
 	if len(newFailed) == 0 {
 		delete(s.failureState, uavID)
+		delete(s.lastFailureTime, uavID)
+	} else {
+		failureState.MixingRecalc = false
+		failureState.PIDAdjusted = false
 	}
 
 	return nil
@@ -343,37 +654,25 @@ func (s *MotorFailureService) ResolveFailure(uavID uint64, motorIndex int) error
 
 func (s *MotorFailureService) SendManualPIDAdjustment(uavID uint64, params map[string]float64) error {
 	cm := mavlink.NewCommandManager()
-	encoder := mavlink.NewMAVLinkEncoder()
 
-	for paramIdx, value := range params {
-		cmdData := encoder.EncodeCommandLong(
-			0, uint8(uavID), 0,
-			mavlink.CMD_DO_SET_PARAMETER,
-			uint8(paramIdx), 0, 0, 0, 0, 0,
-			float32(value),
-		)
+	for paramName, value := range params {
+		cmdData := mavlink.EncodeParamSet(paramName, float32(value), 9)
 		if err := cm.SendCommand(uavID, cmdData); err != nil {
 			return err
 		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	return nil
 }
 
 func (s *MotorFailureService) TriggerManualRTH(uavID uint64) error {
-	return s.TriggerEmergencyRTH(uavID, -1)
+	cm := mavlink.NewCommandManager()
+	rthData := mavlink.EncodeCommandLong(uavID, mavlink.CMD_NAV_RETURN_TO_LAUNCH, 0, 0, 0, 0, 0, 0, 0)
+	return cm.SendCommand(uavID, rthData)
 }
 
 func (s *MotorFailureService) TriggerLand(uavID uint64) error {
 	cm := mavlink.NewCommandManager()
-	encoder := mavlink.NewMAVLinkEncoder()
-	landData := encoder.EncodeCommandLong(
-		0, uint8(uavID), 0,
-		mavlink.CMD_NAV_LAND,
-		0, 0, 0, 0, 0, 0, 0,
-	)
+	landData := mavlink.EncodeCommandLong(uavID, mavlink.CMD_NAV_LAND, 0, 0, 0, 0, 0, 0, 0)
 	return cm.SendCommand(uavID, landData)
-}
-
-func init() {
-	_ = binary.LittleEndian.Uint16
 }

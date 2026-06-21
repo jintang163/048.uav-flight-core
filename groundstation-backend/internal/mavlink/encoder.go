@@ -141,3 +141,18 @@ func EncodeArmDisarm(arm bool) []byte {
 	}
 	return EncodeCommandLong(1, CMD_COMPONENT_ARM_DISARM, param1, 0, 0, 0, 0, 0, 0)
 }
+
+func EncodeParamSet(paramName string, paramValue float32, paramType uint8) []byte {
+	payload := make([]byte, 23)
+
+	nameBytes := make([]byte, 16)
+	copy(nameBytes, []byte(paramName))
+
+	copy(payload[0:16], nameBytes)
+	binary.LittleEndian.PutUint32(payload[16:20], math.Float32bits(paramValue))
+	payload[20] = 0
+	payload[21] = 0
+	payload[22] = paramType
+
+	return EncodeMessage(23, payload)
+}

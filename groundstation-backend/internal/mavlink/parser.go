@@ -447,7 +447,7 @@ type ESCStatusData struct {
 }
 
 func ParseESCStatus(payload []byte) (*ESCStatusData, error) {
-	if len(payload) < 28 {
+	if len(payload) < 31 {
 		return nil, errors.New("payload too short for ESC status")
 	}
 	return &ESCStatusData{

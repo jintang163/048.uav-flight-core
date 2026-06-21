@@ -234,24 +234,24 @@ export const setupTelemetryHandlers = (wsClient: WebSocketClient, dispatch: Disp
   })
 
   wsClient.on('motor_status', (data: unknown) => {
-    const { uavId, motor } = data as { uavId: number; motor: MotorStatus }
-    if (uavId !== undefined && motor) {
-      dispatch(updateMotorStatus({ uavId: String(uavId), motor }))
+    const parsed = data as { uavId?: number; motor?: MotorStatus }
+    if (parsed?.uavId !== undefined && parsed.motor) {
+      dispatch(updateMotorStatus({ uavId: String(parsed.uavId), motor: parsed.motor }))
     }
   })
 
   wsClient.on('motor_failure', (data: unknown) => {
-    const { uavId, motorIndex, status } = data as { uavId: number; motorIndex: number; status: MotorStatus }
-    if (uavId !== undefined && motorIndex !== undefined) {
+    const parsed = data as { uavId?: number; motorIndex?: number; status?: MotorStatus }
+    if (parsed?.uavId !== undefined && parsed?.motorIndex !== undefined) {
       const alert: MotorFailureAlert = {
-        id: `motor_${uavId}_${motorIndex}_${Date.now()}`,
-        uavId,
-        motorIndex,
-        faultFlags: status?.fault_flags ?? 0,
-        errorCode: status?.error_code ?? 0,
-        rpmAtFailure: status?.rpm ?? 0,
-        tempAtFailure: status?.temperature ?? 0,
-        actionTaken: 'pid_adjusted_rth',
+        id: `motor_${parsed.uavId}_${parsed.motorIndex}`,
+        uavId: parsed.uavId,
+        motorIndex: parsed.motorIndex,
+        faultFlags: parsed.status?.fault_flags ?? 0,
+        errorCode: parsed.status?.error_code ?? 0,
+        rpmAtFailure: parsed.status?.rpm ?? 0,
+        tempAtFailure: parsed.status?.temperature ?? 0,
+        actionTaken: 'mixing_recalc_pid_adjust_rth',
         timestamp: Date.now(),
         resolved: false
       }

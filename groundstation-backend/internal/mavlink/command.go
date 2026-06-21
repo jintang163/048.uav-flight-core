@@ -672,29 +672,32 @@ func (m *CommandManager) processESCStatus(uavID uint64, payload []byte) {
 		Current:     float64(esc.Current),
 		Temperature: int(esc.Temperature),
 		Throttle:    float64(esc.Throttle),
+		FaultFlags:  int(esc.FaultFlags),
+		ErrorCount:  int(esc.ErrorCount),
 	}
 
-	if esc.FaultFlags > 0 || esc.RPM == 0 {
-		motorStatus.Status = models.MotorStatusFault
-		motorStatus.FaultFlags = int(esc.FaultFlags)
-		motorStatus.ErrorCount = int(esc.ErrorCount)
-
-		failureDetected, _ := motorService.DetectMotorFailure(uavID, int(esc.Index), motorStatus)
-		if failureDetected {
-			alert, _ := motorService.CreateMotorFailureAlert(uavID, int(esc.Index), motorStatus)
-			if alert != nil {
-				websocket.BroadcastAlert(alert)
-			}
-			websocket.BroadcastMotorFailure(uavID, int(esc.Index), motorStatus)
-
-			go motorService.TriggerEmergencyRTH(uavID, int(esc.Index))
-		}
-	} else {
-		motorStatus.Status = models.MotorStatusNormal
+	if err := motorService.UpdateMotorStatus(uavID, motorStatus); err != nil {
+		return
 	}
 
-	_ = motorService.UpdateMotorStatus(uavID, motorStatus)
+	failureDetected, statusOverride := motorService.DetectMotorFailure(uavID, int(esc.Index), motorStatus)
+	if statusOverride != "" {
+		motorStatus.Status = statusOverride
+	}
 	websocket.BroadcastMotorStatus(uavID, motorStatus)
+
+	if failureDetected {
+		alert, _ := motorService.CreateMotorFailureAlert(uavID, int(esc.Index), motorStatus)
+		if alert != nil {
+			websocket.BroadcastAlert(alert)
+		}
+		websocket.BroadcastMotorFailure(uavID, int(esc.Index), motorStatus)
+
+		motorService.RecalculateMotorMixing(uavID)
+		motorService.AdjustPIDParameters(uavID)
+
+		go motorService.TriggerEmergencyRTH(uavID, int(esc.Index))
+	}
 }
 
 func (m *CommandManager) processESCInfo(uavID uint64, payload []byte) {
