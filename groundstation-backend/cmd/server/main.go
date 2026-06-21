@@ -77,6 +77,13 @@ func main() {
 		&models.MotorStatus{},
 		&models.MotorFailureEvent{},
 		&models.LinkStatus{},
+		&models.Battery{},
+		&models.BatteryUsageRecord{},
+		&models.BatteryCellData{},
+		&models.ChargingStation{},
+		&models.ChargingSlot{},
+		&models.ChargingRecord{},
+		&models.BatteryMaintenanceAlert{},
 	); err != nil {
 		fmt.Printf("Failed to migrate database: %v\n", err)
 		os.Exit(1)
@@ -100,6 +107,9 @@ func main() {
 
 	metricsService := service.NewMetricsService()
 	metricsService.StartCollector(30 * time.Second)
+
+	batteryService := service.NewBatteryService()
+	batteryService.StartMaintenanceScheduler(1*time.Hour, 7)
 
 	ttsConfig := tts.TTSServiceConfig{
 		AudioDir:     "./data/tts_audio",
@@ -393,6 +403,61 @@ func main() {
 			link.GET("/:uav_id/latest", handler.GetLinkStatus)
 			link.GET("/:uav_id/history", handler.GetLinkHistory)
 			link.GET("/statistics", handler.GetLinkStatistics)
+		}
+
+		battery := api.Group("/batteries", middleware.JWTAuth())
+		{
+			battery.POST("", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.CreateBattery)
+			battery.GET("", handler.ListBatteries)
+			battery.GET("/statistics", handler.GetBatteryStatistics)
+			battery.GET("/identify", handler.IdentifyBattery)
+			battery.GET("/maintenance/alerts", handler.GetMaintenanceAlerts)
+			battery.GET("/maintenance/alerts/unacknowledged-count", handler.GetUnacknowledgedMaintenanceCount)
+			battery.POST("/maintenance/check", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.CheckMaintenanceReminders)
+			battery.GET("/:id", handler.GetBattery)
+			battery.PUT("/:id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UpdateBattery)
+			battery.DELETE("/:id", middleware.RoleAuth(models.UserRoleAdmin), handler.DeleteBattery)
+			battery.GET("/:id/usage-records", handler.GetBatteryUsageRecords)
+			battery.GET("/:id/cell-data", handler.GetBatteryCellData)
+			battery.POST("/:id/telemetry", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UpdateBatteryTelemetry)
+			battery.POST("/:id/register-use", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.RegisterBatteryUse)
+			battery.PUT("/:id/soh", middleware.RoleAuth(models.UserRoleAdmin), handler.UpdateBatterySOH)
+			battery.POST("/maintenance/alerts/:id/acknowledge", handler.AcknowledgeMaintenanceAlert)
+			battery.POST("/maintenance/alerts/:id/resolve", handler.ResolveMaintenanceAlert)
+		}
+
+		charging := api.Group("/charging", middleware.JWTAuth())
+		{
+			stations := charging.Group("/stations")
+			{
+				stations.POST("", middleware.RoleAuth(models.UserRoleAdmin), handler.CreateChargingStation)
+				stations.GET("", handler.ListChargingStations)
+				stations.GET("/statistics", handler.GetChargingStatistics)
+				stations.GET("/:id", handler.GetChargingStation)
+				stations.PUT("/:id", middleware.RoleAuth(models.UserRoleAdmin), handler.UpdateChargingStation)
+				stations.DELETE("/:id", middleware.RoleAuth(models.UserRoleAdmin), handler.DeleteChargingStation)
+				stations.GET("/:id/slots", handler.GetChargingStationSlots)
+				stations.POST("/:id/heartbeat", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StationHeartbeat)
+				stations.GET("/:id/records", handler.GetStationChargingRecords)
+			}
+
+			slots := charging.Group("/slots")
+			{
+				slots.GET("/:slot_id", handler.GetChargingSlot)
+				slots.POST("/:slot_id/start", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StartCharging)
+				slots.POST("/:slot_id/stop", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StopCharging)
+				slots.POST("/:slot_id/telemetry", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UpdateSlotTelemetry)
+				slots.POST("/:slot_id/assign", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.AssignBatteryToSlot)
+				slots.POST("/:slot_id/remove", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.RemoveBatteryFromSlot)
+				slots.POST("/:slot_id/fault", middleware.RoleAuth(models.UserRoleAdmin), handler.SetSlotFault)
+			}
+
+			records := charging.Group("/records")
+			{
+				records.GET("", handler.GetChargingRecords)
+				records.GET("/:id", handler.GetChargingRecord)
+				records.GET("/battery/:battery_id", handler.GetBatteryChargingRecords)
+			}
 		}
 	}
 

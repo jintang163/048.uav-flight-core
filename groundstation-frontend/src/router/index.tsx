@@ -31,6 +31,8 @@ const Formation = lazy(() => import('@/pages/Formation'))
 const AIVisual = lazy(() => import('@/pages/AIVisual'))
 const Blackbox = lazy(() => import('@/pages/Blackbox'))
 const BlackboxDetail = lazy(() => import('@/pages/BlackboxDetail'))
+const BatteryManagement = lazy(() => import('@/pages/BatteryManagement'))
+const ChargingManagement = lazy(() => import('@/pages/ChargingManagement'))
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAppSelector(state => state.auth)
@@ -178,6 +180,22 @@ const routes: RouteObject[] = [
         element: (
           <Suspense fallback={<Loading />}>
             <BlackboxDetail />
+          </Suspense>
+        )
+      },
+      {
+        path: 'battery-management',
+        element: (
+          <Suspense fallback={<Loading />}>
+            <BatteryManagement />
+          </Suspense>
+        )
+      },
+      {
+        path: 'charging-management',
+        element: (
+          <Suspense fallback={<Loading />}>
+            <ChargingManagement />
           </Suspense>
         )
       }

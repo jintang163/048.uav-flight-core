@@ -9,6 +9,7 @@ export * from './payload'
 export * from './motor'
 export * from './blackbox'
 export * from './link'
+export * from './battery'
 
 export interface ApiResponse<T = unknown> {
   code: number

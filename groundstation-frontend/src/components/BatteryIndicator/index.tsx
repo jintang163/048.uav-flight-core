@@ -120,6 +120,61 @@ const BatteryInfo = styled.div`
   margin-top: 16px;
 `
 
+const SOHSection = styled.div`
+  margin-top: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+`
+
+const SOHHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+`
+
+const SOHLabel = styled.div`
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+`
+
+const SOHValue = styled.div<{ $soh: number }>`
+  font-size: 18px;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  color: ${props => {
+    if (props.$soh >= 90) return '#52c41a'
+    if (props.$soh >= 80) return '#1890ff'
+    if (props.$soh >= 70) return '#faad14'
+    return '#ff4d4f'
+  }};
+`
+
+const SOHBarContainer = styled.div`
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+`
+
+const SOHBarFill = styled.div<{ $percent: number; $color: string }>`
+  height: 100%;
+  width: ${props => props.$percent}%;
+  background: ${props => props.$color};
+  border-radius: 4px;
+  transition: width 0.3s ease;
+`
+
+const CycleInfo = styled.div`
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+`
+
 const InfoItem = styled.div`
   background: rgba(255, 255, 255, 0.05);
   padding: 12px;
@@ -235,6 +290,10 @@ const TimeValue = styled.div`
 interface BatteryIndicatorProps {
   showTitle?: boolean
   showCells?: boolean
+  showSOH?: boolean
+  soh?: number
+  cycleCount?: number
+  batteryId?: string
 }
 
 const getBatteryColor = (level: number): string => {
@@ -247,7 +306,14 @@ const getCellVoltage = (voltage: number, totalCells: number): number => {
   return totalCells > 0 ? voltage / totalCells : 0
 }
 
-const BatteryIndicator: React.FC<BatteryIndicatorProps> = ({ showTitle = true, showCells = true }) => {
+const getSOHColor = (soh: number): string => {
+  if (soh >= 90) return '#52c41a'
+  if (soh >= 80) return '#1890ff'
+  if (soh >= 70) return '#faad14'
+  return '#ff4d4f'
+}
+
+const BatteryIndicator: React.FC<BatteryIndicatorProps> = ({ showTitle = true, showCells = true, showSOH = true, soh, cycleCount, batteryId }) => {
   const { selectedUAVId } = useUAV()
   const { battery } = useTelemetry(selectedUAVId || undefined)
 
@@ -361,6 +427,22 @@ const BatteryIndicator: React.FC<BatteryIndicatorProps> = ({ showTitle = true, s
             </InfoValue>
           </InfoItem>
         </BatteryInfo>
+
+        {showSOH && soh !== undefined && (
+          <SOHSection>
+            <SOHHeader>
+              <SOHLabel>电池健康度 (SOH)</SOHLabel>
+              <SOHValue $soh={soh}>{soh.toFixed(1)}%</SOHValue>
+            </SOHHeader>
+            <SOHBarContainer>
+              <SOHBarFill $percent={soh} $color={getSOHColor(soh)} />
+            </SOHBarContainer>
+            <CycleInfo>
+              <span>循环次数: {cycleCount ?? 0} 次</span>
+              {batteryId && <span>ID: {batteryId}</span>}
+            </CycleInfo>
+          </SOHSection>
+        )}
 
         {timeRemaining > 0 && (
           <TimeRemaining>

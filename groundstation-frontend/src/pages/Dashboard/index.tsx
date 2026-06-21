@@ -1,11 +1,15 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import styled from 'styled-components'
-import { Row, Col, Select, Badge, Tag, Button, Space } from 'antd'
+import { useNavigate } from 'react-router-dom'
+import { Row, Col, Select, Badge, Tag, Button, Space, Card } from 'antd'
 import {
   RocketOutlined,
   DashboardOutlined,
   BulbOutlined,
-  ThunderboltOutlined
+  ThunderboltOutlined,
+  BatteryFullOutlined,
+  PoweroffOutlined,
+  AlertOutlined
 } from '@ant-design/icons'
 import ArtificialHorizon from '@/components/ArtificialHorizon'
 import { AltitudeGauge, AirspeedGauge, ThrottleGauge, VoltageGauge } from '@/components/GaugeMeter'
@@ -22,6 +26,9 @@ import { useTelemetry } from '@/hooks/useTelemetry'
 import { useAlert } from '@/hooks/useAlert'
 import { formatDateTime, getStatusColor } from '@/utils'
 import type { UAVListItem } from '@/types'
+import { getBatteryList, getBatteryStatistics, getUnacknowledgedMaintenanceCount } from '@/api/battery'
+import { getChargingStatistics } from '@/api/charging'
+import type { BatteryStatistics, ChargingStatistics } from '@/types'
 
 const Container = styled.div`
   width: 100%;
@@ -150,6 +157,66 @@ const BottomRow = styled.div`
   height: 280px;
 `
 
+const BatteryOverviewCard = styled(PanelCard)`
+  padding: 16px;
+`
+
+const BatteryOverviewTitle = styled.div`
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`
+
+const BatteryStatsGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+`
+
+const BatteryStatItem = styled.div`
+  background: rgba(255, 255, 255, 0.05);
+  padding: 10px;
+  border-radius: 6px;
+  text-align: center;
+`
+
+const BatteryStatValue = styled.div<{ $color?: string }>`
+  font-size: 20px;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  color: ${props => props.$color || '#fff'};
+`
+
+const BatteryStatLabel = styled.div`
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 2px;
+`
+
+const BatteryQuickActions = styled.div`
+  display: flex;
+  gap: 8px;
+`
+
+const QuickActionBtn = styled(Button)`
+  flex: 1;
+  font-size: 12px;
+  background: rgba(24, 144, 255, 0.1);
+  border: 1px solid rgba(24, 144, 255, 0.3);
+  color: #1890ff;
+
+  &:hover {
+    background: rgba(24, 144, 255, 0.2) !important;
+    border-color: #1890ff !important;
+    color: #1890ff !important;
+  }
+`
+
 const MapContainer = styled(PanelCard)`
   flex: 1;
   min-height: 0;
@@ -182,15 +249,41 @@ const FlightTimeValue = styled.div`
 `
 
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate()
   const { uavList, selectedUAVId, selectCurrentUAV, currentUAV, listLoading } = useUAV()
   const { attitude, altitude, airspeed, throttle, battery, gps, position, trajectory, flightTime } = useTelemetry(selectedUAVId || undefined)
   const { unreadCount } = useAlert(false)
+  const [batteryStats, setBatteryStats] = useState<BatteryStatistics | null>(null)
+  const [chargingStats, setChargingStats] = useState<ChargingStatistics | null>(null)
+  const [maintenanceCount, setMaintenanceCount] = useState(0)
 
   useEffect(() => {
     if (uavList.length > 0 && !selectedUAVId) {
       selectCurrentUAV(uavList[0].id)
     }
   }, [uavList, selectedUAVId, selectCurrentUAV])
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const [batteryData, chargingData, maintenanceData] = await Promise.all([
+          getBatteryStatistics(),
+          getChargingStatistics(),
+          getUnacknowledgedMaintenanceCount()
+        ])
+        if (batteryData) setBatteryStats(batteryData)
+        if (chargingData) setChargingStats(chargingData)
+        if (maintenanceData && maintenanceData.count !== undefined) {
+          setMaintenanceCount(maintenanceData.count)
+        }
+      } catch (e) {
+        console.error('Failed to fetch battery stats:', e)
+      }
+    }
+    fetchStats()
+    const interval = setInterval(fetchStats, 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   const uavOptions = uavList.map((uav: UAVListItem) => ({
     value: uav.id,
@@ -325,6 +418,47 @@ const Dashboard: React.FC = () => {
           {selectedUAVId && (
             <LinkStatusIndicator uavId={selectedUAVId} showDetails={true} />
           )}
+          
+          <BatteryOverviewCard>
+            <BatteryOverviewTitle>
+              <BatteryFullOutlined style={{ color: '#52c41a' }} />
+              电池概览
+              {maintenanceCount > 0 && (
+                <Badge count={maintenanceCount} size="small" style={{ marginLeft: 'auto' }}>
+                  <AlertOutlined style={{ color: '#faad14', fontSize: '14px' }} />
+                </Badge>
+              )}
+            </BatteryOverviewTitle>
+            <BatteryStatsGrid>
+              <BatteryStatItem>
+                <BatteryStatValue $color="#1890ff">{batteryStats?.total || 0}</BatteryStatValue>
+                <BatteryStatLabel>电池总数</BatteryStatLabel>
+              </BatteryStatItem>
+              <BatteryStatItem>
+                <BatteryStatValue $color="#52c41a">{batteryStats?.charging || 0}</BatteryStatValue>
+                <BatteryStatLabel>充电中</BatteryStatLabel>
+              </BatteryStatItem>
+              <BatteryStatItem>
+                <BatteryStatValue $color="#faad14">{batteryStats?.in_use || 0}</BatteryStatValue>
+                <BatteryStatLabel>使用中</BatteryStatLabel>
+              </BatteryStatItem>
+              <BatteryStatItem>
+                <BatteryStatValue $color={maintenanceCount > 0 ? '#ff4d4f' : '#8c8c8c'}>
+                  {maintenanceCount}
+                </BatteryStatValue>
+                <BatteryStatLabel>需保养</BatteryStatLabel>
+              </BatteryStatItem>
+            </BatteryStatsGrid>
+            <BatteryQuickActions>
+              <QuickActionBtn size="small" onClick={() => navigate('/battery-management')}>
+                <BatteryFullOutlined /> 电池管理
+              </QuickActionBtn>
+              <QuickActionBtn size="small" onClick={() => navigate('/charging-management')}>
+                <PoweroffOutlined /> 充电管理
+              </QuickActionBtn>
+            </BatteryQuickActions>
+          </BatteryOverviewCard>
+
           <PanelCard style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
             <AlertPanel showTitle maxItems={8} />
           </PanelCard>

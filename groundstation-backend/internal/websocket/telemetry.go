@@ -207,3 +207,61 @@ func BroadcastLinkStatus(uavID uint64, status interface{}) {
 	telemetryHub.BroadcastUAVTelemetry(uavID, msg)
 	telemetryHub.broadcast <- bytes
 }
+
+func BroadcastChargingStatus(stationID uint64, slotID uint64, level float64, voltage float64, current float64) {
+	data := map[string]interface{}{
+		"station_id": stationID,
+		"stationId":  stationID,
+		"slot_id":    slotID,
+		"slotId":     slotID,
+		"level":      level,
+		"voltage":    voltage,
+		"current":    current,
+		"timestamp":  time.Now().UnixNano() / 1e6,
+	}
+
+	msg := &Message{
+		Type:    "charging_status",
+		Data:    data,
+		Payload: data,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, _ := json.Marshal(msg)
+	telemetryHub.broadcast <- bytes
+}
+
+func BroadcastChargingStationStatus(stationID uint64, status string, occupiedSlots int, chargingSlots int) {
+	data := map[string]interface{}{
+		"station_id":     stationID,
+		"stationId":      stationID,
+		"status":         status,
+		"occupied_slots": occupiedSlots,
+		"occupiedSlots":  occupiedSlots,
+		"charging_slots": chargingSlots,
+		"chargingSlots":  chargingSlots,
+		"timestamp":      time.Now().UnixNano() / 1e6,
+	}
+
+	msg := &Message{
+		Type:    "charging_station_status",
+		Data:    data,
+		Payload: data,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, _ := json.Marshal(msg)
+	telemetryHub.broadcast <- bytes
+}
+
+func BroadcastBatteryMaintenanceAlert(alert interface{}) {
+	msg := &Message{
+		Type:    "battery_maintenance_alert",
+		Data:    alert,
+		Payload: alert,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, _ := json.Marshal(msg)
+	telemetryHub.broadcast <- bytes
+}
