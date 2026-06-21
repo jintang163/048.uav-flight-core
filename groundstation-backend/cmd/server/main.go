@@ -74,6 +74,8 @@ func main() {
 		&models.OrthoMission{},
 		&models.OrthoWaypoint{},
 		&models.TextToSpeechTask{},
+		&models.MotorStatus{},
+		&models.MotorFailureEvent{},
 	); err != nil {
 		fmt.Printf("Failed to migrate database: %v\n", err)
 		os.Exit(1)
@@ -365,6 +367,16 @@ func main() {
 				}
 				utils.SuccessResponse(c, "获取成功", summary)
 			})
+		}
+
+		motor := api.Group("/motor-protection", middleware.JWTAuth())
+		{
+			motor.GET("/uav/:uav_id/status", handler.GetMotorStatuses)
+			motor.GET("/uav/:uav_id/failure-state", handler.GetMotorFailureState)
+			motor.POST("/uav/:uav_id/pid-adjust", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ManualPIDAdjustment)
+			motor.POST("/uav/:uav_id/emergency-rth", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.EmergencyRTH)
+			motor.POST("/uav/:uav_id/emergency-land", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.EmergencyLand)
+			motor.POST("/uav/:uav_id/resolve/:motor_index", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ResolveMotorFailure)
 		}
 	}
 

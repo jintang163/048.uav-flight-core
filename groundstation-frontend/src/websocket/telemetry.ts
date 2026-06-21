@@ -22,6 +22,10 @@ import {
   updateOrthoMission,
   updateTTSTask
 } from '@/store/slices/payload'
+import {
+  updateMotorStatus,
+  addMotorFailureAlert
+} from '@/store/slices/motor'
 import type {
   TelemetryData,
   Alert,
@@ -35,7 +39,9 @@ import type {
   PayloadDevice,
   OrbitMission,
   OrthoMission,
-  TextToSpeechTask
+  TextToSpeechTask,
+  MotorStatus,
+  MotorFailureAlert
 } from '@/types'
 import type { FormationCollisionWarning } from '@/types/formation'
 import type WebSocketClient from './client'
@@ -224,6 +230,32 @@ export const setupTelemetryHandlers = (wsClient: WebSocketClient, dispatch: Disp
     const task = data as TextToSpeechTask
     if (task && task.id) {
       dispatch(updateTTSTask(task))
+    }
+  })
+
+  wsClient.on('motor_status', (data: unknown) => {
+    const { uavId, motor } = data as { uavId: number; motor: MotorStatus }
+    if (uavId !== undefined && motor) {
+      dispatch(updateMotorStatus({ uavId: String(uavId), motor }))
+    }
+  })
+
+  wsClient.on('motor_failure', (data: unknown) => {
+    const { uavId, motorIndex, status } = data as { uavId: number; motorIndex: number; status: MotorStatus }
+    if (uavId !== undefined && motorIndex !== undefined) {
+      const alert: MotorFailureAlert = {
+        id: `motor_${uavId}_${motorIndex}_${Date.now()}`,
+        uavId,
+        motorIndex,
+        faultFlags: status?.fault_flags ?? 0,
+        errorCode: status?.error_code ?? 0,
+        rpmAtFailure: status?.rpm ?? 0,
+        tempAtFailure: status?.temperature ?? 0,
+        actionTaken: 'pid_adjusted_rth',
+        timestamp: Date.now(),
+        resolved: false
+      }
+      dispatch(addMotorFailureAlert(alert))
     }
   })
 

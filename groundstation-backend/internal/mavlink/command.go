@@ -287,6 +287,12 @@ func (m *CommandManager) processMAVLinkMessage(msg *MAVLinkMessage) {
 
 	case VIDEO_STREAM_INFORMATION:
 		m.processVideoStreamInfo(uavID, msg.Payload)
+
+	case ESC_STATUS:
+		m.processESCStatus(uavID, msg.Payload)
+
+	case ESC_INFO:
+		m.processESCInfo(uavID, msg.Payload)
 	}
 
 	_ = nsq.Publish(nsq.TopicMAVLinkMessage, map[string]interface{}{
@@ -649,6 +655,56 @@ func (m *CommandManager) Stop() {
 		m.listenerUDP.Close()
 	}
 	m.parser.Close()
+}
+
+func (m *CommandManager) processESCStatus(uavID uint64, payload []byte) {
+	esc, err := ParseESCStatus(payload)
+	if err != nil {
+		return
+	}
+
+	motorService := service.NewMotorFailureService()
+	motorStatus := &models.MotorStatus{
+		UAVID:       uavID,
+		MotorIndex:  int(esc.Index),
+		RPM:         int(esc.RPM),
+		Voltage:     float64(esc.Voltage),
+		Current:     float64(esc.Current),
+		Temperature: int(esc.Temperature),
+		Throttle:    float64(esc.Throttle),
+	}
+
+	if esc.FaultFlags > 0 || esc.RPM == 0 {
+		motorStatus.Status = models.MotorStatusFault
+		motorStatus.FaultFlags = int(esc.FaultFlags)
+		motorStatus.ErrorCount = int(esc.ErrorCount)
+
+		failureDetected, _ := motorService.DetectMotorFailure(uavID, int(esc.Index), motorStatus)
+		if failureDetected {
+			alert, _ := motorService.CreateMotorFailureAlert(uavID, int(esc.Index), motorStatus)
+			if alert != nil {
+				websocket.BroadcastAlert(alert)
+			}
+			websocket.BroadcastMotorFailure(uavID, int(esc.Index), motorStatus)
+
+			go motorService.TriggerEmergencyRTH(uavID, int(esc.Index))
+		}
+	} else {
+		motorStatus.Status = models.MotorStatusNormal
+	}
+
+	_ = motorService.UpdateMotorStatus(uavID, motorStatus)
+	websocket.BroadcastMotorStatus(uavID, motorStatus)
+}
+
+func (m *CommandManager) processESCInfo(uavID uint64, payload []byte) {
+	escInfo, err := ParseESCInfo(payload)
+	if err != nil {
+		return
+	}
+
+	motorService := service.NewMotorFailureService()
+	_ = motorService.UpdateMotorInfo(uavID, int(escInfo.Index), escInfo.Vendor, escInfo.Model, int(escInfo.FaultFlags), int(escInfo.ErrorCode))
 }
 
 func getCommandResultMessage(result uint8) string {

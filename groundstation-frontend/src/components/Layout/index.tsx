@@ -43,6 +43,7 @@ import { useAlert } from '@/hooks/useAlert'
 import { useUAV } from '@/hooks/useUAV'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { formatDateTime } from '@/utils'
+import MotorFailureAlertModal from '@/components/MotorFailureAlert'
 
 const { Header, Sider, Content } = Layout
 
@@ -494,6 +495,8 @@ const MainLayout: React.FC = () => {
           locale={{ emptyText: '暂无告警' }}
         />
       </Drawer>
+
+      <MotorFailureAlertModal />
     </LayoutContainer>
   )
 }

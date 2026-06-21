@@ -34,6 +34,9 @@ const (
 	NAMED_VALUE_INT   = 252
 	PAYLOAD_STATUS    = 380
 	PAYLOAD_TELEMETRY = 381
+	ESC_STATUS        = 291
+	ESC_INFO          = 290
+	HIGHRES_IMU       = 105
 )
 
 const (
@@ -428,5 +431,76 @@ func ParseNamedValueFloat(payload []byte) (*NamedValueFloatData, error) {
 		TimeBootMs: binary.LittleEndian.Uint32(payload[0:4]),
 		Value:      math.Float32frombits(binary.LittleEndian.Uint32(payload[4:8])),
 		Name:       name,
+	}, nil
+}
+
+type ESCStatusData struct {
+	Index       uint8
+	TimeUsec    uint64
+	RPM         uint32
+	Voltage     float32
+	Current     float32
+	Temperature int16
+	FaultFlags  uint16
+	ErrorCount  uint16
+	Throttle    float32
+}
+
+func ParseESCStatus(payload []byte) (*ESCStatusData, error) {
+	if len(payload) < 28 {
+		return nil, errors.New("payload too short for ESC status")
+	}
+	return &ESCStatusData{
+		Index:       uint8(payload[0]),
+		TimeUsec:    binary.LittleEndian.Uint64(payload[1:9]),
+		RPM:         binary.LittleEndian.Uint32(payload[9:13]),
+		Voltage:     math.Float32frombits(binary.LittleEndian.Uint32(payload[13:17])),
+		Current:     math.Float32frombits(binary.LittleEndian.Uint32(payload[17:21])),
+		Temperature: int16(binary.LittleEndian.Uint16(payload[21:23])),
+		FaultFlags:  binary.LittleEndian.Uint16(payload[23:25]),
+		ErrorCount:  binary.LittleEndian.Uint16(payload[25:27]),
+		Throttle:    math.Float32frombits(binary.LittleEndian.Uint32(payload[27:31])),
+	}, nil
+}
+
+type ESCInfoData struct {
+	Index          uint8
+	Count          uint8
+	ConnectionType uint8
+	FaultFlags     uint16
+	ErrorCode      uint32
+	Vendor         string
+	Model          string
+	Version        uint32
+	SN             string
+}
+
+func ParseESCInfo(payload []byte) (*ESCInfoData, error) {
+	if len(payload) < 12 {
+		return nil, errors.New("payload too short for ESC info")
+	}
+	vendor := string(payload[8:24])
+	for i, b := range []byte(vendor) {
+		if b == 0 {
+			vendor = string([]byte(vendor)[:i])
+			break
+		}
+	}
+	model := string(payload[24:40])
+	for i, b := range []byte(model) {
+		if b == 0 {
+			model = string([]byte(model)[:i])
+			break
+		}
+	}
+	return &ESCInfoData{
+		Index:          uint8(payload[0]),
+		Count:          uint8(payload[1]),
+		ConnectionType: uint8(payload[2]),
+		FaultFlags:     binary.LittleEndian.Uint16(payload[3:5]),
+		ErrorCode:      binary.LittleEndian.Uint32(payload[5:9]),
+		Vendor:         vendor,
+		Model:          model,
+		Version:        binary.LittleEndian.Uint32(payload[40:44]),
 	}, nil
 }

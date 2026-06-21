@@ -62,6 +62,22 @@ func BroadcastTTSTaskProgress(taskID uint64, status string, audioURL string, err
 	hub.BroadcastTTSTaskProgress(taskID, status, audioURL, errorMsg)
 }
 
+func BroadcastMotorFailure(uavID uint64, motorIndex int, status *models.MotorStatus) {
+	hub := GetHub()
+	if hub == nil {
+		return
+	}
+	hub.BroadcastMotorFailure(uavID, motorIndex, status)
+}
+
+func BroadcastMotorStatus(uavID uint64, status *models.MotorStatus) {
+	hub := GetHub()
+	if hub == nil {
+		return
+	}
+	hub.BroadcastMotorStatus(uavID, status)
+}
+
 func (h *Hub) BroadcastPayloadStatus(uavID uint64, payloadID uint64, status *models.PayloadDevice) {
 	data := map[string]interface{}{
 		"uavId":     uavID,
@@ -185,4 +201,23 @@ func (h *Hub) broadcastGlobalMsg(msgType string, data interface{}) {
 	}
 
 	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastMotorFailure(uavID uint64, motorIndex int, status *models.MotorStatus) {
+	data := map[string]interface{}{
+		"uavId":      uavID,
+		"motorIndex": motorIndex,
+		"status":     status,
+		"timestamp":  time.Now().UnixNano() / 1e6,
+	}
+	h.broadcastUAVMsg(uavID, "motor_failure", data)
+}
+
+func (h *Hub) BroadcastMotorStatus(uavID uint64, status *models.MotorStatus) {
+	data := map[string]interface{}{
+		"uavId":     uavID,
+		"motor":     status,
+		"timestamp": time.Now().UnixNano() / 1e6,
+	}
+	h.broadcastUAVMsg(uavID, "motor_status", data)
 }

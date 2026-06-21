@@ -15,6 +15,7 @@ import AlertPanel from '@/components/AlertPanel'
 import ControlPanel from '@/components/ControlPanel'
 import BatteryIndicator from '@/components/BatteryIndicator'
 import RCChannels from '@/components/RCChannels'
+import MotorStatusPanel from '@/components/MotorStatusPanel'
 import { useUAV } from '@/hooks/useUAV'
 import { useTelemetry } from '@/hooks/useTelemetry'
 import { useAlert } from '@/hooks/useAlert'
@@ -326,6 +327,7 @@ const Dashboard: React.FC = () => {
           <PanelCard style={{ height: 260 }}>
             <RCChannels showTitle={false} maxChannels={8} />
           </PanelCard>
+          <MotorStatusPanel uavId={selectedUAVId || undefined} />
         </RightPanel>
       </Content>
     </Container>

@@ -6,6 +6,7 @@ export * from './alert'
 export * from './formation'
 export * from './tracking'
 export * from './payload'
+export * from './motor'
 
 export interface ApiResponse<T = unknown> {
   code: number
