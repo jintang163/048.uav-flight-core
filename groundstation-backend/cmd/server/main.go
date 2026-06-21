@@ -76,6 +76,7 @@ func main() {
 		&models.TextToSpeechTask{},
 		&models.MotorStatus{},
 		&models.MotorFailureEvent{},
+		&models.LinkStatus{},
 	); err != nil {
 		fmt.Printf("Failed to migrate database: %v\n", err)
 		os.Exit(1)
@@ -384,6 +385,14 @@ func main() {
 			motor.POST("/uav/:uav_id/emergency-rth", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.EmergencyRTH)
 			motor.POST("/uav/:uav_id/emergency-land", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.EmergencyLand)
 			motor.POST("/uav/:uav_id/resolve/:motor_index", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ResolveMotorFailure)
+		}
+
+		link := api.Group("/link", middleware.JWTAuth())
+		{
+			link.POST("/status", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ReportLinkStatus)
+			link.GET("/:uav_id/latest", handler.GetLinkStatus)
+			link.GET("/:uav_id/history", handler.GetLinkHistory)
+			link.GET("/statistics", handler.GetLinkStatistics)
 		}
 	}
 

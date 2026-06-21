@@ -8,6 +8,7 @@ export * from './tracking'
 export * from './payload'
 export * from './motor'
 export * from './blackbox'
+export * from './link'
 
 export interface ApiResponse<T = unknown> {
   code: number

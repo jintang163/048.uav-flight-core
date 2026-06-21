@@ -16,6 +16,7 @@ import ControlPanel from '@/components/ControlPanel'
 import BatteryIndicator from '@/components/BatteryIndicator'
 import RCChannels from '@/components/RCChannels'
 import MotorStatusPanel from '@/components/MotorStatusPanel'
+import LinkStatusIndicator from '@/components/LinkStatusIndicator'
 import { useUAV } from '@/hooks/useUAV'
 import { useTelemetry } from '@/hooks/useTelemetry'
 import { useAlert } from '@/hooks/useAlert'
@@ -321,6 +322,9 @@ const Dashboard: React.FC = () => {
         </CenterPanel>
 
         <RightPanel>
+          {selectedUAVId && (
+            <LinkStatusIndicator uavId={selectedUAVId} showDetails={true} />
+          )}
           <PanelCard style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
             <AlertPanel showTitle maxItems={8} />
           </PanelCard>

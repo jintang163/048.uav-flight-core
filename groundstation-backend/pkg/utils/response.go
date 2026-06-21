@@ -85,3 +85,28 @@ func NotFound(c *gin.Context, message string) {
 func InternalServerError(c *gin.Context, message string) {
 	ErrorWithStatus(c, http.StatusInternalServerError, 500, message)
 }
+
+func SuccessResponse(c *gin.Context, message string, data interface{}) {
+	c.JSON(http.StatusOK, Response{
+		Code:    0,
+		Message: message,
+		Data:    data,
+	})
+}
+
+func SuccessResponseWithTotal(c *gin.Context, message string, data interface{}, total int64) {
+	c.JSON(http.StatusOK, Response{
+		Code:    0,
+		Message: message,
+		Data:    data,
+		Total:   total,
+	})
+}
+
+func ErrorResponse(c *gin.Context, httpStatus, code int, message string, data interface{}) {
+	c.JSON(httpStatus, Response{
+		Code:    code,
+		Message: message,
+		Data:    data,
+	})
+}

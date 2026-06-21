@@ -6,6 +6,29 @@
 #include "motor_control.h"
 #include "blackbox_logger.h"
 #include "types.h"
+#include "sbus_rc.h"
+
+#define HEARTBEAT_INTERVAL      1000
+#define GCS_HEARTBEAT_TIMEOUT   5000
+
+typedef struct {
+    uint32_t heartbeat_interval;
+    uint32_t last_heartbeat_sent;
+    uint32_t last_heartbeat_received;
+    bool gcs_connected;
+    uint8_t system_id;
+    uint8_t component_id;
+    uint16_t mission_count;
+    uint16_t mission_item_index;
+    bool stream_attitude;
+    bool stream_position;
+    bool stream_battery;
+    bool stream_sys_status;
+    uint32_t last_attitude_sent;
+    uint32_t last_position_sent;
+    uint32_t last_battery_sent;
+    uint32_t last_sys_status_sent;
+} MAVLinkHandlerData;
 
 static MAVLinkHandlerData mavlink_data;
 
@@ -289,6 +312,8 @@ void mavlink_send_heartbeat(void)
 {
     mavlink_message_t msg;
     FlightMode mode = flight_controller_get_mode();
+    LinkType active_link;
+    LinkStatus radio_status, lte_status;
 
     uint8_t base_mode = 0;
     if (flight_controller_is_armed()) {
@@ -297,12 +322,19 @@ void mavlink_send_heartbeat(void)
     base_mode |= MAV_MODE_FLAG_CUSTOM_MODE_ENABLED;
 
     uint32_t custom_mode = (uint32_t)mode;
+    active_link = link_manager_get_active_link();
+    link_manager_get_link_status(LINK_TYPE_RADIO, &radio_status);
+    link_manager_get_link_status(LINK_TYPE_4G, &lte_status);
+
+    custom_mode |= ((uint32_t)active_link << 8);
 
     mavlink_msg_heartbeat_pack(mavlink_data.system_id, mavlink_data.component_id, &msg,
                                MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_GENERIC, base_mode, custom_mode,
                                flight_controller_get_state() == FCS_EMERGENCY ? MAV_STATE_CRITICAL : MAV_STATE_ACTIVE);
 
     mavlink_send_message(&msg);
+
+    mavlink_send_link_status(active_link, &radio_status, &lte_status);
 }
 
 void mavlink_send_attitude(void)
@@ -562,6 +594,236 @@ void mavlink_send_log_data(uint16_t id, uint32_t offset, uint8_t count, const ui
         offset,
         count,
         log_data
+    );
+    mavlink_send_message(&msg);
+}
+
+void mavlink_send_statustext(uint8_t severity, const char *text)
+{
+    mavlink_message_t msg;
+    char status_text[50];
+
+    memset(status_text, 0, sizeof(status_text));
+    if (text != NULL) {
+        strncpy(status_text, text, sizeof(status_text) - 1);
+    }
+
+    mavlink_msg_statustext_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        severity,
+        status_text,
+        0, 0
+    );
+
+    mavlink_send_message(&msg);
+}
+
+void mavlink_send_rc_channels_raw(void)
+{
+    mavlink_message_t msg;
+    SBUS_Data sbus_data;
+
+    sbus_rc_get_data(&sbus_data);
+
+    uint16_t chan[16];
+    for (int i = 0; i < 16; i++) {
+        chan[i] = sbus_data.channels[i];
+    }
+
+    mavlink_msg_rc_channels_raw_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        HAL_GetTick() / 1000,
+        0,
+        chan[0], chan[1], chan[2], chan[3],
+        chan[4], chan[5], chan[6], chan[7],
+        chan[8], chan[9], chan[10], chan[11],
+        chan[12], chan[13], chan[14], chan[15],
+        sbus_data.signal_loss ? 0 : 1,
+        0
+    );
+
+    mavlink_send_message(&msg);
+}
+
+void mavlink_send_local_position_ned(void)
+{
+    mavlink_message_t msg;
+    PositionState pos;
+
+    sensor_manager_get_position(&pos);
+
+    mavlink_msg_local_position_ned_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        HAL_GetTick() / 1000,
+        0.0f, 0.0f, 0.0f,
+        pos.velocity.vn,
+        pos.velocity.ve,
+        pos.velocity.vd
+    );
+
+    mavlink_send_message(&msg);
+}
+
+void mavlink_send_altitude(void)
+{
+    mavlink_message_t msg;
+    PositionState pos;
+
+    sensor_manager_get_position(&pos);
+
+    mavlink_msg_altitude_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        HAL_GetTick() / 1000,
+        pos.altitude / 1000.0f,
+        pos.altitude / 1000.0f,
+        0.0f, 0.0f, 0.0f, 0.0f
+    );
+
+    mavlink_send_message(&msg);
+}
+
+void mavlink_send_vfr_hud(void)
+{
+    mavlink_message_t msg;
+    PositionState pos;
+    BatteryState battery;
+
+    sensor_manager_get_position(&pos);
+    sensor_manager_get_battery(&battery);
+
+    mavlink_msg_vfr_hud_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        pos.ground_speed,
+        pos.ground_speed,
+        pos.heading,
+        pos.velocity.vd * -1.0f,
+        battery.voltage,
+        0.0f
+    );
+
+    mavlink_send_message(&msg);
+}
+
+void mavlink_send_link_status(LinkType active_link, LinkStatus *radio_status, LinkStatus *lte_status)
+{
+    mavlink_message_t msg;
+
+    if (radio_status != NULL) {
+        mavlink_msg_radio_status_pack(
+            mavlink_data.system_id,
+            mavlink_data.component_id,
+            &msg,
+            radio_status->quality.rssi,
+            radio_status->quality.rssi,
+            (uint8_t)(radio_status->quality.snr * 10),
+            (uint16_t)(radio_status->quality.latency_ms),
+            (uint8_t)(radio_status->quality.packet_loss * 2.5f),
+            (uint16_t)(radio_status->bytes_sent >> 10),
+            (uint16_t)(radio_status->bytes_received >> 10)
+        );
+        mavlink_send_message(&msg);
+    }
+
+    if (lte_status != NULL) {
+        char text[100];
+        snprintf(text, sizeof(text),
+                 "LINK: active=%s | RADIO: rssi=%d state=%d | 4G: rssi=%d state=%d",
+                 link_type_to_string(active_link),
+                 radio_status ? radio_status->quality.rssi : -128,
+                 radio_status ? radio_status->state : 0,
+                 lte_status->quality.rssi,
+                 lte_status->state);
+        mavlink_send_statustext(MAV_SEVERITY_INFO, text);
+    }
+}
+
+void mavlink_send_mission_count(uint16_t count)
+{
+    mavlink_message_t msg;
+    mavlink_msg_mission_count_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        0, 0, count, 0
+    );
+    mavlink_send_message(&msg);
+}
+
+void mavlink_send_mission_item(uint16_t index)
+{
+    MissionItem item;
+    mavlink_message_t msg;
+
+    mission_manager_get_waypoint(index, &item);
+
+    mavlink_msg_mission_item_int_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        0, 0, index, 0, item.type,
+        0, 0, 0, 0, item.hold_time, item.radius, item.heading,
+        item.lat, item.lon, item.alt, 0
+    );
+    mavlink_send_message(&msg);
+}
+
+void mavlink_set_target_attitude(float roll, float pitch, float yaw, float thrust)
+{
+    ControlCommand cmd;
+    cmd.roll = roll;
+    cmd.pitch = pitch;
+    cmd.yaw = yaw;
+    cmd.throttle = thrust;
+    flight_controller_set_mavlink_command(&cmd);
+}
+
+void mavlink_set_target_position(int32_t lat, int32_t lon, int32_t alt)
+{
+    PositionState pos;
+    sensor_manager_get_position(&pos);
+    pos.position.lat = lat;
+    pos.position.lon = lon;
+    pos.position.alt = alt;
+}
+
+bool mavlink_get_command(ControlCommand *cmd)
+{
+    if (cmd == NULL) {
+        return false;
+    }
+    return flight_controller_get_mavlink_command(cmd);
+}
+
+void mavlink_send_command_ack(uint16_t cmd, uint8_t result)
+{
+    mavlink_message_t msg;
+    mavlink_msg_command_ack_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        cmd, result, 0, 0, 0, 0
+    );
+    mavlink_send_message(&msg);
+}
+
+void mavlink_send_mission_ack(uint8_t type)
+{
+    mavlink_message_t msg;
+    mavlink_msg_mission_ack_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        0, 0, type, 0
     );
     mavlink_send_message(&msg);
 }

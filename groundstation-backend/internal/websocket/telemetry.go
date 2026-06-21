@@ -185,3 +185,25 @@ func GetRealtimeData(uavID uint64) (map[string]interface{}, error) {
 func GetAllRealtimeData() (map[string]interface{}, error) {
 	return flightService.GetAllRealtimeData()
 }
+
+func BroadcastLinkStatus(uavID uint64, status interface{}) {
+	data := map[string]interface{}{
+		"uav_id":    uavID,
+		"uavId":     uavID,
+		"status":    status,
+		"timestamp": time.Now().UnixNano() / 1e6,
+	}
+
+	msg := &Message{
+		Type:    "link_status",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, _ := json.Marshal(msg)
+	telemetryHub.BroadcastUAVTelemetry(uavID, msg)
+	telemetryHub.broadcast <- bytes
+}
