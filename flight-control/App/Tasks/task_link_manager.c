@@ -51,9 +51,9 @@ static void task_link_manager_update_lte_quality(void)
     _4g_driver_get_status(&lte_status);
 
     quality.rssi = lte_status.rssi;
-    quality.snr = 10.0f + ((float)(rand() % 40) - 20.0f) / 10.0f;
-    quality.packet_loss = lte_status.registered ? ((float)(rand() % 100)) / 10.0f : 100.0f;
-    quality.latency_ms = 50 + (rand() % 100);
+    quality.snr = lte_status.ber != 99 ? (float)(30 - lte_status.ber * 2) : 0.0f;
+    quality.packet_loss = lte_status.registered ? ((float)lte_status.ber * 0.5f) : 100.0f;
+    quality.latency_ms = lte_status.registered ? 50 + (lte_status.csq < 20 ? 100 : 30) : 0;
 
     link_manager_update_link_quality(LINK_TYPE_4G, &quality);
 

@@ -37,6 +37,7 @@ const (
 	ESC_STATUS        = 291
 	ESC_INFO          = 290
 	HIGHRES_IMU       = 105
+	LINK_STATUS       = 390
 )
 
 const (
@@ -434,6 +435,31 @@ func ParseNamedValueFloat(payload []byte) (*NamedValueFloatData, error) {
 	}, nil
 }
 
+type NamedValueIntData struct {
+	TimeBootMs uint32
+	Value      int32
+	Name       string
+}
+
+func ParseNamedValueInt(payload []byte) (*NamedValueIntData, error) {
+	if len(payload) < 18 {
+		return nil, errors.New("payload too short")
+	}
+	nameBytes := payload[8:18]
+	name := string(nameBytes[:])
+	for i, b := range nameBytes {
+		if b == 0 {
+			name = string(nameBytes[:i])
+			break
+		}
+	}
+	return &NamedValueIntData{
+		TimeBootMs: binary.LittleEndian.Uint32(payload[0:4]),
+		Value:      int32(binary.LittleEndian.Uint32(payload[4:8])),
+		Name:       name,
+	}, nil
+}
+
 type ESCStatusData struct {
 	Index       uint8
 	TimeUsec    uint64
@@ -502,5 +528,45 @@ func ParseESCInfo(payload []byte) (*ESCInfoData, error) {
 		Vendor:         vendor,
 		Model:          model,
 		Version:        binary.LittleEndian.Uint32(payload[40:44]),
+	}, nil
+}
+
+type LinkStatusData struct {
+	ActiveLink     uint8
+	RadioRSSI      int8
+	RadioConnected uint8
+	LteRSSI        int8
+	LteConnected   uint8
+	LteNetworkType string
+	PacketLoss     float32
+	LatencyMs      uint32
+	BytesSent      uint64
+	BytesReceived  uint64
+}
+
+func ParseLinkStatus(payload []byte) (*LinkStatusData, error) {
+	if len(payload) < 45 {
+		return nil, errors.New("payload too short for link status")
+	}
+
+	lteNetworkType := string(payload[5:21])
+	for i, b := range payload[5:21] {
+		if b == 0 {
+			lteNetworkType = string(payload[5 : 5+i])
+			break
+		}
+	}
+
+	return &LinkStatusData{
+		ActiveLink:     uint8(payload[0]),
+		RadioRSSI:      int8(payload[1]),
+		RadioConnected: uint8(payload[2]),
+		LteRSSI:        int8(payload[3]),
+		LteConnected:   uint8(payload[4]),
+		LteNetworkType: lteNetworkType,
+		PacketLoss:     math.Float32frombits(binary.LittleEndian.Uint32(payload[21:25])),
+		LatencyMs:      binary.LittleEndian.Uint32(payload[25:29]),
+		BytesSent:      binary.LittleEndian.Uint64(payload[29:37]),
+		BytesReceived:  binary.LittleEndian.Uint64(payload[37:45]),
 	}, nil
 }

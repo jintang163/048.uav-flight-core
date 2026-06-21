@@ -15,8 +15,10 @@ typedef enum {
 typedef struct __attribute__((packed)) {
     int8_t rssi;
     int8_t ber;
+    uint8_t csq;
     NetworkType network_type;
     bool registered;
+    char operator_name[16];
 } LTEStatus;
 
 bool _4g_driver_init(void);
@@ -24,5 +26,6 @@ void _4g_driver_update(void);
 bool _4g_driver_get_status(LTEStatus *status);
 bool _4g_driver_is_connected(void);
 int8_t _4g_driver_get_rssi(void);
+void _4g_driver_process_byte(uint8_t byte);
 
 #endif

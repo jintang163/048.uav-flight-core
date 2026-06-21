@@ -7,6 +7,9 @@
 #include "blackbox_logger.h"
 #include "types.h"
 #include "sbus_rc.h"
+#include "link_manager.h"
+#include "4g_driver.h"
+#include "main.h"
 
 #define HEARTBEAT_INTERVAL      1000
 #define GCS_HEARTBEAT_TIMEOUT   5000
@@ -28,6 +31,8 @@ typedef struct {
     uint32_t last_position_sent;
     uint32_t last_battery_sent;
     uint32_t last_sys_status_sent;
+    bool dual_link_enabled;
+    uint8_t primary_link;
 } MAVLinkHandlerData;
 
 static MAVLinkHandlerData mavlink_data;
@@ -41,6 +46,8 @@ void mavlink_handler_init(void)
     mavlink_data.gcs_connected = false;
     mavlink_data.system_id = MAV_SYS_ID;
     mavlink_data.component_id = MAV_COMP_ID;
+    mavlink_data.dual_link_enabled = true;
+    mavlink_data.primary_link = MAVLINK_COMM_RADIO;
 }
 
 void mavlink_handler_update(void)
@@ -93,6 +100,11 @@ void mavlink_handler_process_message(mavlink_message_t *msg)
         case MAVLINK_MSG_ID_HEARTBEAT:
             mavlink_data.last_heartbeat_received = HAL_GetTick();
             mavlink_data.gcs_connected = true;
+            if (current_rx_link == MAVLINK_COMM_RADIO) {
+                link_manager_notify_heartbeat(LINK_TYPE_RADIO);
+            } else {
+                link_manager_notify_heartbeat(LINK_TYPE_4G);
+            }
             break;
 
         case MAVLINK_MSG_ID_COMMAND_LONG:
@@ -461,12 +473,30 @@ void mavlink_send_mission_ack(uint8_t sysid, uint8_t compid, uint8_t type)
     mavlink_send_message(&msg);
 }
 
+static uint8_t current_rx_link = MAVLINK_COMM_RADIO;
+
 void mavlink_send_message(mavlink_message_t *msg)
 {
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     uint16_t len = mavlink_msg_to_send_buffer(buf, msg);
 
-    HAL_UART_Transmit(&huart3, buf, len, 10);
+    if (msg->msgid == MAVLINK_MSG_ID_HEARTBEAT) {
+        HAL_UART_Transmit(&huart3, buf, len, 10);
+        HAL_UART_Transmit(&huart4, buf, len, 10);
+    } else {
+        LinkType active_link = link_manager_get_active_link();
+
+        if (mavlink_data.dual_link_enabled) {
+            HAL_UART_Transmit(&huart3, buf, len, 10);
+            HAL_UART_Transmit(&huart4, buf, len, 10);
+        } else {
+            if (active_link == LINK_TYPE_RADIO) {
+                HAL_UART_Transmit(&huart3, buf, len, 10);
+            } else {
+                HAL_UART_Transmit(&huart4, buf, len, 10);
+            }
+        }
+    }
 }
 
 bool mavlink_handler_is_gcs_connected(void)
@@ -714,35 +744,91 @@ void mavlink_send_vfr_hud(void)
     mavlink_send_message(&msg);
 }
 
-void mavlink_send_link_status(LinkType active_link, LinkStatus *radio_status, LinkStatus *lte_status)
+#define MAV_COMP_ID_TELEMETRY_RADIO  68
+#define MAV_COMP_ID_UDP_BRIDGE       240
+
+static void mavlink_send_radio_status(uint8_t comp_id, int8_t rssi, uint8_t rx_errors,
+                                      uint16_t latency_ms, uint8_t packet_loss_pct,
+                                      uint32_t bytes_sent, uint32_t bytes_received)
 {
     mavlink_message_t msg;
+    mavlink_msg_radio_status_pack(
+        mavlink_data.system_id,
+        comp_id,
+        &msg,
+        (uint8_t)(rssi + 128),
+        (uint8_t)(rssi + 128),
+        100,
+        (int8_t)(rssi / 2),
+        (int8_t)(rssi / 2),
+        rx_errors,
+        (uint16_t)(packet_loss_pct * 10)
+    );
+    mavlink_send_message(&msg);
+}
+
+static void mavlink_send_named_value_int(const char *name, int32_t value)
+{
+    mavlink_message_t msg;
+    char name_buf[16];
+
+    memset(name_buf, 0, sizeof(name_buf));
+    if (name != NULL) {
+        strncpy(name_buf, name, sizeof(name_buf) - 1);
+    }
+
+    mavlink_msg_named_value_int_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        HAL_GetTick(),
+        name_buf,
+        value
+    );
+    mavlink_send_message(&msg);
+}
+
+void mavlink_send_link_status(LinkType active_link, LinkStatus *radio_status, LinkStatus *lte_status)
+{
+    LTEStatus lte_drv_status;
 
     if (radio_status != NULL) {
-        mavlink_msg_radio_status_pack(
-            mavlink_data.system_id,
-            mavlink_data.component_id,
-            &msg,
+        mavlink_send_radio_status(
+            MAV_COMP_ID_TELEMETRY_RADIO,
             radio_status->quality.rssi,
-            radio_status->quality.rssi,
-            (uint8_t)(radio_status->quality.snr * 10),
-            (uint16_t)(radio_status->quality.latency_ms),
-            (uint8_t)(radio_status->quality.packet_loss * 2.5f),
-            (uint16_t)(radio_status->bytes_sent >> 10),
-            (uint16_t)(radio_status->bytes_received >> 10)
+            0,
+            (uint16_t)radio_status->quality.latency_ms,
+            (uint8_t)radio_status->quality.packet_loss,
+            radio_status->bytes_sent,
+            radio_status->bytes_received
         );
-        mavlink_send_message(&msg);
     }
 
     if (lte_status != NULL) {
-        char text[100];
+        mavlink_send_radio_status(
+            MAV_COMP_ID_UDP_BRIDGE,
+            lte_status->quality.rssi,
+            0,
+            (uint16_t)lte_status->quality.latency_ms,
+            (uint8_t)lte_status->quality.packet_loss,
+            lte_status->bytes_sent,
+            lte_status->bytes_received
+        );
+
+        _4g_driver_get_status(&lte_drv_status);
+        mavlink_send_named_value_int("lte_nettype", (int32_t)lte_drv_status.network_type);
+    }
+
+    mavlink_send_named_value_int("link_active", (int32_t)active_link);
+
+    if (radio_status != NULL && lte_status != NULL) {
+        char text[120];
         snprintf(text, sizeof(text),
-                 "LINK: active=%s | RADIO: rssi=%d state=%d | 4G: rssi=%d state=%d",
+                 "LINK: active=%s | RADIO: rssi=%d | 4G: rssi=%d net=%d",
                  link_type_to_string(active_link),
-                 radio_status ? radio_status->quality.rssi : -128,
-                 radio_status ? radio_status->state : 0,
+                 radio_status->quality.rssi,
                  lte_status->quality.rssi,
-                 lte_status->state);
+                 lte_drv_status.network_type);
         mavlink_send_statustext(MAV_SEVERITY_INFO, text);
     }
 }
@@ -826,4 +912,23 @@ void mavlink_send_mission_ack(uint8_t type)
         0, 0, type, 0
     );
     mavlink_send_message(&msg);
+}
+
+void mavlink_set_primary_link(uint8_t link)
+{
+    if (link == MAVLINK_COMM_RADIO || link == MAVLINK_COMM_LTE) {
+        mavlink_data.primary_link = link;
+    }
+}
+
+void mavlink_receive_byte_from_link(uint8_t link, uint8_t byte)
+{
+    mavlink_message_t msg;
+    mavlink_status_t status;
+
+    current_rx_link = link;
+
+    if (mavlink_parse_char(MAVLINK_COMM_0, byte, &msg, &status)) {
+        mavlink_handler_process_message(&msg);
+    }
 }

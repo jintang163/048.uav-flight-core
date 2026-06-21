@@ -13,19 +13,24 @@
 #include "task_tracking.h"
 #include "task_blackbox.h"
 #include "task_link_manager.h"
+#include "4g_driver.h"
+#include "mavlink_handler.h"
 
 I2C_HandleTypeDef hi2c1;
 TIM_HandleTypeDef htim1;
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
+UART_HandleTypeDef huart4;
 DMA_HandleTypeDef hdma_usart1_rx;
 DMA_HandleTypeDef hdma_usart2_rx;
 DMA_HandleTypeDef hdma_usart3_rx;
+DMA_HandleTypeDef hdma_uart4_rx;
 
 static volatile uint8_t uart1_rx_buffer[256];
 static volatile uint8_t uart2_rx_buffer[256];
 static volatile uint8_t uart3_rx_buffer[256];
+static volatile uint8_t uart4_rx_buffer[512];
 
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
@@ -34,6 +39,7 @@ static void MX_TIM1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_USART3_UART_Init(void);
+static void MX_UART4_Init(void);
 static void MX_DMA_Init(void);
 
 int main(void)
@@ -48,10 +54,12 @@ int main(void)
     MX_USART1_UART_Init();
     MX_USART2_UART_Init();
     MX_USART3_UART_Init();
+    MX_UART4_Init();
 
     HAL_UART_Receive_DMA(&huart1, (uint8_t *)uart1_rx_buffer, sizeof(uart1_rx_buffer));
     HAL_UART_Receive_DMA(&huart2, (uint8_t *)uart2_rx_buffer, sizeof(uart2_rx_buffer));
     HAL_UART_Receive_DMA(&huart3, (uint8_t *)uart3_rx_buffer, sizeof(uart3_rx_buffer));
+    HAL_UART_Receive_DMA(&huart4, (uint8_t *)uart4_rx_buffer, sizeof(uart4_rx_buffer));
 
     task_sensor_read_init();
     task_attitude_estimation_init();
@@ -200,6 +208,19 @@ static void MX_USART3_UART_Init(void)
     HAL_UART_Init(&huart3);
 }
 
+static void MX_UART4_Init(void)
+{
+    huart4.Instance = UART4;
+    huart4.Init.BaudRate = LTE_UART_BAUDRATE;
+    huart4.Init.WordLength = UART_WORDLENGTH_8B;
+    huart4.Init.StopBits = UART_STOPBITS_1;
+    huart4.Init.Parity = UART_PARITY_NONE;
+    huart4.Init.Mode = UART_MODE_TX_RX;
+    huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+    huart4.Init.OverSampling = UART_OVERSAMPLING_16;
+    HAL_UART_Init(&huart4);
+}
+
 static void MX_DMA_Init(void)
 {
     __HAL_RCC_DMA2_CLK_ENABLE();
@@ -236,9 +257,14 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         HAL_UART_Receive_DMA(&huart2, (uint8_t *)uart2_rx_buffer, sizeof(uart2_rx_buffer));
     } else if (huart->Instance == USART3) {
         for (int i = 0; i < sizeof(uart3_rx_buffer); i++) {
-            mavlink_receive_byte(uart3_rx_buffer[i]);
+            mavlink_receive_byte_from_link(MAVLINK_COMM_RADIO, uart3_rx_buffer[i]);
         }
         HAL_UART_Receive_DMA(&huart3, (uint8_t *)uart3_rx_buffer, sizeof(uart3_rx_buffer));
+    } else if (huart->Instance == UART4) {
+        for (int i = 0; i < sizeof(uart4_rx_buffer); i++) {
+            _4g_driver_process_byte(uart4_rx_buffer[i]);
+        }
+        HAL_UART_Receive_DMA(&huart4, (uint8_t *)uart4_rx_buffer, sizeof(uart4_rx_buffer));
     }
 }
 
@@ -257,6 +283,11 @@ void DMA1_Stream2_IRQHandler(void)
     HAL_DMA_IRQHandler(&hdma_usart3_rx);
 }
 
+void DMA1_Stream4_IRQHandler(void)
+{
+    HAL_DMA_IRQHandler(&hdma_uart4_rx);
+}
+
 void USART1_IRQHandler(void)
 {
     HAL_UART_IRQHandler(&huart1);
@@ -270,6 +301,11 @@ void USART2_IRQHandler(void)
 void USART3_IRQHandler(void)
 {
     HAL_UART_IRQHandler(&huart3);
+}
+
+void UART4_IRQHandler(void)
+{
+    HAL_UART_IRQHandler(&huart4);
 }
 
 void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName)

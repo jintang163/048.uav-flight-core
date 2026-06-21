@@ -26,7 +26,10 @@ import {
   updateMotorStatus,
   addMotorFailureAlert
 } from '@/store/slices/motor'
+import { updateLinkStatus } from '@/store/slices/link'
 import type {
+  LinkStatus,
+
   TelemetryData,
   Alert,
   GeofenceViolation,
@@ -256,6 +259,13 @@ export const setupTelemetryHandlers = (wsClient: WebSocketClient, dispatch: Disp
         resolved: false
       }
       dispatch(addMotorFailureAlert(alert))
+    }
+  })
+
+  wsClient.on('link_status', (data: unknown) => {
+    const linkData = data as { status: LinkStatus }
+    if (linkData?.status) {
+      dispatch(updateLinkStatus(linkData.status))
     }
   })
 

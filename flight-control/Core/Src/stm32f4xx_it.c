@@ -5,9 +5,11 @@ extern TIM_HandleTypeDef htim1;
 extern UART_HandleTypeDef huart1;
 extern UART_HandleTypeDef huart2;
 extern UART_HandleTypeDef huart3;
+extern UART_HandleTypeDef huart4;
 extern DMA_HandleTypeDef hdma_usart1_rx;
 extern DMA_HandleTypeDef hdma_usart2_rx;
 extern DMA_HandleTypeDef hdma_usart3_rx;
+extern DMA_HandleTypeDef hdma_uart4_rx;
 
 void NMI_Handler(void)
 {
@@ -84,6 +86,16 @@ void USART2_IRQHandler(void)
 void USART3_IRQHandler(void)
 {
     HAL_UART_IRQHandler(&huart3);
+}
+
+void UART4_IRQHandler(void)
+{
+    HAL_UART_IRQHandler(&huart4);
+}
+
+void DMA1_Stream4_IRQHandler(void)
+{
+    HAL_DMA_IRQHandler(&hdma_uart4_rx);
 }
 
 void TIM1_UP_TIM10_IRQHandler(void)

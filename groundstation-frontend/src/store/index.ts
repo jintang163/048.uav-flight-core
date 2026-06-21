@@ -10,6 +10,7 @@ import formationReducer from './slices/formation'
 import trackingReducer from './slices/tracking'
 import payloadReducer from './slices/payload'
 import motorReducer from './slices/motor'
+import linkReducer from './slices/link'
 
 export const store = configureStore({
   reducer: {
@@ -22,7 +23,8 @@ export const store = configureStore({
     formation: formationReducer,
     tracking: trackingReducer,
     payload: payloadReducer,
-    motor: motorReducer
+    motor: motorReducer,
+    link: linkReducer
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

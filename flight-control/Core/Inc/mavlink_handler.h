@@ -5,6 +5,9 @@
 #include "flight_config.h"
 #include "link_manager.h"
 
+#define MAVLINK_COMM_RADIO 0
+#define MAVLINK_COMM_LTE   1
+
 typedef enum {
     MAV_STATE_UNINIT = 0,
     MAV_STATE_BOOT = 1,
@@ -71,5 +74,8 @@ void mavlink_send_log_entry(uint16_t id, uint32_t num_logs, uint32_t latest_log_
 void mavlink_send_log_data(uint16_t id, uint32_t offset, uint8_t count, const uint8_t *data);
 
 void mavlink_send_link_status(LinkType active_link, LinkStatus *radio_status, LinkStatus *lte_status);
+
+void mavlink_set_primary_link(uint8_t link);
+void mavlink_receive_byte_from_link(uint8_t link, uint8_t byte);
 
 #endif

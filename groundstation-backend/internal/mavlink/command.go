@@ -18,14 +18,33 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	MAV_COMP_ID_TELEMETRY_RADIO = 68
+	MAV_COMP_ID_UDP_BRIDGE      = 240
+)
+
+type linkStatusSnapshot struct {
+	ActiveLink     uint8
+	RadioRSSI      int8
+	RadioConnected bool
+	LteRSSI        int8
+	LteConnected   bool
+	LteNetworkType string
+	PacketLoss     float64
+	LatencyMs      uint32
+	LastUpdate     time.Time
+}
+
 type CommandManager struct {
-	uavConns      map[uint64]net.Conn
-	connMu        sync.RWMutex
-	parser        *MAVLinkParser
-	flightService *service.FlightService
-	heartbeatMgr  *HeartbeatManager
-	listenerTCP   net.Listener
-	listenerUDP   *net.UDPConn
+	uavConns        map[uint64]net.Conn
+	connMu          sync.RWMutex
+	parser          *MAVLinkParser
+	flightService   *service.FlightService
+	heartbeatMgr    *HeartbeatManager
+	listenerTCP     net.Listener
+	listenerUDP     *net.UDPConn
+	linkStatusCache map[uint64]*linkStatusSnapshot
+	linkStatusMu    sync.Mutex
 }
 
 var commandManager *CommandManager
@@ -34,10 +53,11 @@ var commandOnce sync.Once
 func NewCommandManager() *CommandManager {
 	commandOnce.Do(func() {
 		commandManager = &CommandManager{
-			uavConns:      make(map[uint64]net.Conn),
-			parser:        NewMAVLinkParser(),
-			flightService: service.NewFlightService(),
-			heartbeatMgr:  NewHeartbeatManager(),
+			uavConns:        make(map[uint64]net.Conn),
+			parser:          NewMAVLinkParser(),
+			flightService:   service.NewFlightService(),
+			heartbeatMgr:    NewHeartbeatManager(),
+			linkStatusCache: make(map[uint64]*linkStatusSnapshot),
 		}
 	})
 	return commandManager
@@ -262,7 +282,7 @@ func (m *CommandManager) processMAVLinkMessage(msg *MAVLinkMessage) {
 		}
 
 	case RADIO_STATUS:
-		m.processRadioStatus(uavID, msg.Payload)
+		m.processRadioStatus(uavID, msg.ComponentID, msg.Payload)
 
 	case MISSION_ITEM_REACHED:
 		m.processMissionItemReached(uavID, msg.Payload)
@@ -285,6 +305,9 @@ func (m *CommandManager) processMAVLinkMessage(msg *MAVLinkMessage) {
 	case NAMED_VALUE_FLOAT:
 		m.processNamedValueFloat(uavID, msg.Payload)
 
+	case NAMED_VALUE_INT:
+		m.processNamedValueInt(uavID, msg.Payload)
+
 	case VIDEO_STREAM_INFORMATION:
 		m.processVideoStreamInfo(uavID, msg.Payload)
 
@@ -293,6 +316,9 @@ func (m *CommandManager) processMAVLinkMessage(msg *MAVLinkMessage) {
 
 	case ESC_INFO:
 		m.processESCInfo(uavID, msg.Payload)
+
+	case LINK_STATUS:
+		m.processLinkStatus(uavID, msg.Payload)
 	}
 
 	_ = nsq.Publish(nsq.TopicMAVLinkMessage, map[string]interface{}{
@@ -512,6 +538,59 @@ func (m *CommandManager) processNamedValueFloat(uavID uint64, payload []byte) {
 	})
 }
 
+func (m *CommandManager) processNamedValueInt(uavID uint64, payload []byte) {
+	nv, err := ParseNamedValueInt(payload)
+	if err != nil {
+		return
+	}
+
+	m.linkStatusMu.Lock()
+	cache, exists := m.linkStatusCache[uavID]
+	if !exists {
+		cache = &linkStatusSnapshot{}
+		m.linkStatusCache[uavID] = cache
+	}
+
+	updated := false
+
+	switch nv.Name {
+	case "link_active":
+		cache.ActiveLink = uint8(nv.Value)
+		updated = true
+	case "lte_nettype":
+		switch nv.Value {
+		case 0:
+			cache.LteNetworkType = "none"
+		case 1:
+			cache.LteNetworkType = "2G"
+		case 2:
+			cache.LteNetworkType = "3G"
+		case 3:
+			cache.LteNetworkType = "4G"
+		case 4:
+			cache.LteNetworkType = "5G"
+		}
+		updated = true
+	}
+
+	if updated {
+		cache.LastUpdate = time.Now()
+	}
+	m.linkStatusMu.Unlock()
+
+	if updated {
+		m.updateLinkStatusIfChanged(uavID)
+	}
+
+	_ = nsq.Publish(nsq.TopicTelemetryData, map[string]interface{}{
+		"uav_id":       uavID,
+		"name":         nv.Name,
+		"value":        nv.Value,
+		"time_boot_ms": nv.TimeBootMs,
+		"timestamp":    time.Now().UnixNano() / 1e6,
+	})
+}
+
 func (m *CommandManager) processVideoStreamInfo(uavID uint64, payload []byte) {
 	if len(payload) < 20 {
 		return
@@ -575,30 +654,59 @@ func (m *CommandManager) processGlobalPosition(uavID uint64, payload []byte) {
 	}
 }
 
-func (m *CommandManager) processRadioStatus(uavID uint64, payload []byte) {
-	if len(payload) >= 9 {
-		rssi := int8(payload[0])
-		remoteRSSI := int8(payload[1])
-		txbuf := uint8(payload[5])
-		noise := int8(payload[6])
-		remoteNoise := int8(payload[7])
-
-		signalStrength := 100 + int(rssi)
-		if signalStrength > 100 {
-			signalStrength = 100
-		}
-		if signalStrength < 0 {
-			signalStrength = 0
-		}
-
-		_ = m.flightService.ProcessTelemetry(&service.TelemetryData{
-			UAVID:          uavID,
-			SignalStrength: float64(signalStrength),
-			RSSI:           int(rssi),
-			RemoteRSSI:     int(remoteRSSI),
-			Timestamp:      time.Now(),
-		})
+func (m *CommandManager) processRadioStatus(uavID uint64, componentID uint8, payload []byte) {
+	if len(payload) < 9 {
+		return
 	}
+
+	rssi := int8(payload[0])
+	fixed := binary.LittleEndian.Uint16(payload[7:9])
+	packetLoss := float64(fixed) / 10.0
+
+	signalStrength := 100 + int(rssi)
+	if signalStrength > 100 {
+		signalStrength = 100
+	}
+	if signalStrength < 0 {
+		signalStrength = 0
+	}
+
+	_ = m.flightService.ProcessTelemetry(&service.TelemetryData{
+		UAVID:          uavID,
+		SignalStrength: float64(signalStrength),
+		RSSI:           int(rssi),
+		Timestamp:      time.Now(),
+	})
+
+	m.linkStatusMu.Lock()
+	cache, exists := m.linkStatusCache[uavID]
+	if !exists {
+		cache = &linkStatusSnapshot{}
+		m.linkStatusCache[uavID] = cache
+	}
+
+	connected := rssi > -100
+
+	switch componentID {
+	case MAV_COMP_ID_TELEMETRY_RADIO:
+		cache.RadioRSSI = rssi
+		cache.RadioConnected = connected
+	case MAV_COMP_ID_UDP_BRIDGE:
+		cache.LteRSSI = rssi
+		cache.LteConnected = connected
+	default:
+		cache.RadioRSSI = rssi
+		cache.RadioConnected = connected
+	}
+
+	if packetLoss > 0 {
+		cache.PacketLoss = packetLoss
+	}
+
+	cache.LastUpdate = time.Now()
+	m.linkStatusMu.Unlock()
+
+	m.updateLinkStatusIfChanged(uavID)
 }
 
 func (m *CommandManager) processMissionItemReached(uavID uint64, payload []byte) {
@@ -708,6 +816,57 @@ func (m *CommandManager) processESCInfo(uavID uint64, payload []byte) {
 
 	motorService := service.NewMotorFailureService()
 	_ = motorService.UpdateMotorInfo(uavID, int(escInfo.Index), escInfo.Vendor, escInfo.Model, int(escInfo.FaultFlags), int(escInfo.ErrorCode))
+}
+
+func (m *CommandManager) updateLinkStatusIfChanged(uavID uint64) {
+	m.linkStatusMu.Lock()
+	cache, exists := m.linkStatusCache[uavID]
+	if !exists {
+		m.linkStatusMu.Unlock()
+		return
+	}
+
+	hasRadioRSSI := cache.RadioRSSI != 0 || cache.RadioConnected
+	hasLteRSSI := cache.LteRSSI != 0 || cache.LteConnected
+
+	if !hasRadioRSSI && !hasLteRSSI {
+		m.linkStatusMu.Unlock()
+		return
+	}
+
+	report := &service.LinkStatusReport{
+		ActiveLink:     cache.ActiveLink,
+		RadioRSSI:      cache.RadioRSSI,
+		RadioConnected: cache.RadioConnected,
+		LteRSSI:        cache.LteRSSI,
+		LteConnected:   cache.LteConnected,
+		LteNetworkType: cache.LteNetworkType,
+		PacketLoss:     cache.PacketLoss,
+		LatencyMs:      cache.LatencyMs,
+	}
+	m.linkStatusMu.Unlock()
+
+	_, _ = service.NewLinkService().ReportStatus(uavID, report)
+}
+
+func (m *CommandManager) processLinkStatus(uavID uint64, payload []byte) {
+	linkStatus, err := ParseLinkStatus(payload)
+	if err != nil {
+		return
+	}
+
+	linkService := service.NewLinkService()
+	report := &service.LinkStatusReport{
+		ActiveLink:     linkStatus.ActiveLink,
+		RadioRSSI:      linkStatus.RadioRSSI,
+		RadioConnected: linkStatus.RadioConnected != 0,
+		LteRSSI:        linkStatus.LteRSSI,
+		LteConnected:   linkStatus.LteConnected != 0,
+		LteNetworkType: linkStatus.LteNetworkType,
+		PacketLoss:     float64(linkStatus.PacketLoss),
+		LatencyMs:      linkStatus.LatencyMs,
+	}
+	_, _ = linkService.ReportStatus(uavID, report)
 }
 
 func getCommandResultMessage(result uint8) string {

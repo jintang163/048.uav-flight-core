@@ -165,6 +165,35 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
         HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
         HAL_NVIC_SetPriority(USART3_IRQn, 5, 0);
         HAL_NVIC_EnableIRQ(USART3_IRQn);
+    } else if (huart->Instance == UART4) {
+        __HAL_RCC_UART4_CLK_ENABLE();
+        __HAL_RCC_GPIOC_CLK_ENABLE();
+
+        GPIO_InitStruct.Pin = GPIO_PIN_10 | GPIO_PIN_11;
+        GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+        GPIO_InitStruct.Pull = GPIO_NOPULL;
+        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+        GPIO_InitStruct.Alternate = GPIO_AF8_UART4;
+        HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+        hdma_uart4_rx.Instance = DMA1_Stream4;
+        hdma_uart4_rx.Init.Channel = DMA_CHANNEL_4;
+        hdma_uart4_rx.Init.Direction = DMA_PERIPH_TO_MEMORY;
+        hdma_uart4_rx.Init.PeriphInc = DMA_PINC_DISABLE;
+        hdma_uart4_rx.Init.MemInc = DMA_MINC_ENABLE;
+        hdma_uart4_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+        hdma_uart4_rx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
+        hdma_uart4_rx.Init.Mode = DMA_CIRCULAR;
+        hdma_uart4_rx.Init.Priority = DMA_PRIORITY_HIGH;
+        hdma_uart4_rx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+        HAL_DMA_Init(&hdma_uart4_rx);
+
+        __HAL_LINKDMA(huart, hdmarx, hdma_uart4_rx);
+
+        HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 4, 0);
+        HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
+        HAL_NVIC_SetPriority(UART4_IRQn, 5, 0);
+        HAL_NVIC_EnableIRQ(UART4_IRQn);
     }
 }
 
@@ -188,5 +217,11 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
         HAL_DMA_DeInit(huart->hdmarx);
         HAL_NVIC_DisableIRQ(DMA1_Stream6_IRQn);
         HAL_NVIC_DisableIRQ(USART3_IRQn);
+    } else if (huart->Instance == UART4) {
+        __HAL_RCC_UART4_CLK_DISABLE();
+        HAL_GPIO_DeInit(GPIOC, GPIO_PIN_10 | GPIO_PIN_11);
+        HAL_DMA_DeInit(huart->hdmarx);
+        HAL_NVIC_DisableIRQ(DMA1_Stream4_IRQn);
+        HAL_NVIC_DisableIRQ(UART4_IRQn);
     }
 }
