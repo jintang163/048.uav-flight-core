@@ -10,6 +10,7 @@ export * from './motor'
 export * from './blackbox'
 export * from './link'
 export * from './battery'
+export * from './preflight'
 
 export interface ApiResponse<T = unknown> {
   code: number

@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import styled from 'styled-components'
-import { Button, Space, Modal, message } from 'antd'
+import { Button, Space, Modal, message, InputNumber, Divider } from 'antd'
 import {
   RocketOutlined,
   DownOutlined,
@@ -15,6 +15,7 @@ import { useUAV } from '@/hooks/useUAV'
 import { sendCommand } from '@/websocket/command'
 import { speakAlert } from '@/utils'
 import type { UAVMode } from '@/types'
+import PreflightCheckPanel from '@/components/PreflightCheckPanel'
 
 const Container = styled.div`
   width: 100%;
@@ -159,6 +160,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ showTitle = true }) => {
   const { currentUAV, loading } = useUAV()
   const [takeoffAltitude, setTakeoffAltitude] = useState<number>(5)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [preflightPassed, setPreflightPassed] = useState(false)
 
   const confirmAction = (title: string, content: string, onConfirm: () => void) => {
     Modal.confirm({
@@ -209,6 +211,11 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ showTitle = true }) => {
 
   const handleTakeoff = async () => {
     if (!currentUAV) return
+    if (!preflightPassed) {
+      message.error('飞行前自检未通过，禁止起飞！请先完成自检并修复所有不通过项')
+      speakAlert('飞行前自检未通过，禁止起飞')
+      return
+    }
     confirmAction(
       '确认起飞',
       `无人机将起飞至 ${takeoffAltitude} 米高度，请确保周围环境安全。`,
@@ -361,10 +368,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ showTitle = true }) => {
               icon={<RocketOutlined />}
               onClick={handleTakeoff}
               loading={actionLoading === 'takeoff'}
-              disabled={!isArmed || isFlying || loading}
+              disabled={!isArmed || isFlying || loading || !preflightPassed}
               $success
             >
-              <ButtonLabel>起飞</ButtonLabel>
+              <ButtonLabel>{!preflightPassed ? '需自检' : '起飞'}</ButtonLabel>
             </ControlButton>
 
             <ControlButton
@@ -425,25 +432,29 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ showTitle = true }) => {
                 起飞高度 (米)
               </div>
               <Space.Compact style={{ width: '100%' }}>
-                <input
+                <InputNumber
                   type="number"
                   value={takeoffAltitude}
-                  onChange={(e) => setTakeoffAltitude(Number(e.target.value))}
+                  onChange={(v) => setTakeoffAltitude(Number(v) || 5)}
                   min={1}
                   max={120}
-                  style={{
-                    width: '100%',
-                    height: 32,
-                    padding: '0 12px',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    borderRadius: 6,
-                    background: 'rgba(255,255,255,0.05)',
-                    color: '#fff',
-                    outline: 'none'
-                  }}
+                  style={{ width: '100%' }}
                 />
               </Space.Compact>
             </AltitudeInput>
+          )}
+
+          {!isFlying && currentUAV && (
+            <div style={{ marginTop: 16 }}>
+              <PreflightCheckPanel
+                uavId={Number(currentUAV.id)}
+                uavName={currentUAV.name}
+                showTitle={false}
+                compact
+                onPassChange={setPreflightPassed}
+                onTakeoff={handleTakeoff}
+              />
+            </div>
           )}
 
           <StatusSection>

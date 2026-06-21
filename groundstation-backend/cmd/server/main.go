@@ -299,6 +299,13 @@ func main() {
 			formation.POST("/:id/takeoff", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.MultiTakeoff)
 		}
 
+		preflight := api.Group("/preflight", middleware.JWTAuth())
+		{
+			preflight.POST("/run", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.RunPreflightCheck)
+			preflight.POST("/batch", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.BatchRunPreflightCheck)
+			preflight.GET("/thresholds", handler.GetPreflightThresholds)
+		}
+
 		tracking := api.Group("/tracking", middleware.JWTAuth())
 		{
 			tracking.POST("/lock", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.LockTarget)

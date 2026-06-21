@@ -359,7 +359,7 @@ const Dashboard: React.FC = () => {
           <PanelCard style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
             <TelemetryPanel uav={currentUAV} />
           </PanelCard>
-          <PanelCard style={{ height: 320 }}>
+          <PanelCard style={{ height: 420 }}>
             <ControlPanel showTitle={false} />
           </PanelCard>
           <PanelCard style={{ height: 200, overflow: 'auto' }}>
