@@ -2,9 +2,11 @@
 #include "sensor_manager.h"
 #include "flight_controller.h"
 #include "motor_control.h"
-#include "attitude_estimator.h"
+#include "task_attitude_estimation.h"
+#include "task_health_monitor.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static BlackboxState bb_state;
 static BlackboxHeader bb_header;
@@ -15,14 +17,51 @@ static uint32_t buffer_index = 0;
 static uint32_t flash_write_ptr = 0;
 static uint32_t flash_read_ptr = 0;
 
+static uint8_t *flash_memory_sim = NULL;
+
 #define FLASH_DATA_START_OFFSET  sizeof(BlackboxHeader)
 #define FLASH_DATA_END_OFFSET    BLACKBOX_FLASH_SIZE
+
+void flash_driver_init(void)
+{
+    if (flash_memory_sim == NULL) {
+        flash_memory_sim = (uint8_t *)malloc(BLACKBOX_FLASH_SIZE);
+        if (flash_memory_sim != NULL) {
+            memset(flash_memory_sim, 0xFF, BLACKBOX_FLASH_SIZE);
+        }
+    }
+}
+
+void flash_driver_write(uint32_t offset, uint8_t *data, uint32_t size)
+{
+    if (flash_memory_sim == NULL) return;
+    if (offset + size > BLACKBOX_FLASH_SIZE) return;
+    memcpy(&flash_memory_sim[offset], data, size);
+}
+
+void flash_driver_read(uint32_t offset, uint8_t *data, uint32_t size)
+{
+    if (flash_memory_sim == NULL) return;
+    if (offset + size > BLACKBOX_FLASH_SIZE) return;
+    memcpy(data, &flash_memory_sim[offset], size);
+}
+
+void flash_driver_erase_sector(uint32_t sector_addr)
+{
+    if (flash_memory_sim == NULL) return;
+    uint32_t offset = sector_addr;
+    uint32_t end = offset + BLACKBOX_SECTOR_SIZE;
+    if (end > BLACKBOX_FLASH_SIZE) end = BLACKBOX_FLASH_SIZE;
+    memset(&flash_memory_sim[offset], 0xFF, end - offset);
+}
 
 void blackbox_init(void)
 {
     memset(&bb_state, 0, sizeof(BlackboxState));
     memset(&bb_header, 0, sizeof(BlackboxHeader));
     memset(flash_buffer, 0, sizeof(flash_buffer));
+
+    flash_driver_init();
 
     bb_header.magic = BLACKBOX_HEADER_MAGIC;
     bb_header.version = BLACKBOX_VERSION;
@@ -79,6 +118,7 @@ void blackbox_stop(void)
     bb_header.data_size = flash_write_ptr - FLASH_DATA_START_OFFSET;
 
     if (buffer_index > 0) {
+        flash_driver_write(flash_write_ptr - buffer_index, flash_buffer, buffer_index);
         buffer_index = 0;
     }
 }
@@ -94,21 +134,31 @@ static void write_to_flash(uint8_t *data, uint32_t size)
         flash_write_ptr = FLASH_DATA_START_OFFSET;
     }
 
-    if (size <= sizeof(flash_buffer) - buffer_index) {
+    if (buffer_index + size <= sizeof(flash_buffer)) {
         memcpy(&flash_buffer[buffer_index], data, size);
         buffer_index += size;
         flash_write_ptr += size;
     } else {
         uint32_t first_part = sizeof(flash_buffer) - buffer_index;
         memcpy(&flash_buffer[buffer_index], data, first_part);
+        flash_driver_write(flash_write_ptr - buffer_index, flash_buffer, sizeof(flash_buffer));
         buffer_index = 0;
 
         uint32_t remaining = size - first_part;
         if (remaining > 0) {
-            memcpy(flash_buffer, &data[first_part], remaining);
-            buffer_index = remaining;
+            if (remaining <= sizeof(flash_buffer)) {
+                memcpy(flash_buffer, &data[first_part], remaining);
+                buffer_index = remaining;
+            } else {
+                flash_driver_write(flash_write_ptr, &data[first_part], remaining);
+            }
         }
         flash_write_ptr += size;
+    }
+
+    if (buffer_index >= BLACKBOX_SECTOR_SIZE) {
+        flash_driver_write(flash_write_ptr - buffer_index, flash_buffer, BLACKBOX_SECTOR_SIZE);
+        buffer_index = 0;
     }
 }
 
@@ -127,22 +177,22 @@ void blackbox_log_data(void)
     BlackboxDataEntry *data = &entry.payload.data;
     data->timestamp = HAL_GetTick();
 
-    AttitudeState att;
-    attitude_estimator_get_attitude(&att);
-    data->roll = att.euler.roll;
-    data->pitch = att.euler.pitch;
-    data->yaw = att.euler.yaw;
+    AttitudeState att_state;
+    task_attitude_estimation_get_state(&att_state);
+    data->roll = att_state.euler.roll;
+    data->pitch = att_state.euler.pitch;
+    data->yaw = att_state.euler.yaw;
 
-    PositionState pos;
-    flight_controller_get_position(&pos);
-    data->lat = pos.position.lat;
-    data->lon = pos.position.lon;
-    data->alt = pos.position.alt;
-    data->vx = pos.velocity.vn;
-    data->vy = pos.velocity.ve;
-    data->vz = pos.velocity.vd;
-    data->satellites = pos.satellites;
-    data->gps_fix_type = pos.fix_type;
+    PositionState pos_state;
+    flight_controller_get_position(&pos_state);
+    data->lat = pos_state.position.lat;
+    data->lon = pos_state.position.lon;
+    data->alt = pos_state.position.alt;
+    data->vx = pos_state.velocity.vn;
+    data->vy = pos_state.velocity.ve;
+    data->vz = pos_state.velocity.vd;
+    data->satellites = pos_state.satellites;
+    data->gps_fix_type = pos_state.fix_type;
 
     BatteryState battery;
     sensor_manager_get_battery(&battery);
@@ -153,13 +203,17 @@ void blackbox_log_data(void)
     RCInput rc;
     sensor_manager_get_rc(&rc);
     for (int i = 0; i < 8; i++) {
-        data->rc_channels[i] = rc.channels[i];
+        if (i < 16) {
+            data->rc_channels[i] = rc.channels[i];
+        } else {
+            data->rc_channels[i] = 0;
+        }
     }
 
-    MotorState motor_state;
-    motor_control_get_state(&motor_state);
+    uint32_t motor_pwms[4];
+    motor_control_get_all_pwm(motor_pwms);
     for (int i = 0; i < 4; i++) {
-        data->motor_pwm[i] = motor_state.pwm[i];
+        data->motor_pwm[i] = (uint16_t)(motor_pwms[i] & 0xFFFF);
     }
 
     data->flight_mode = (uint8_t)flight_controller_get_mode();
@@ -226,10 +280,16 @@ uint32_t blackbox_get_flight_id(void)
 
 bool blackbox_read_entry(uint32_t index, BlackboxLogEntry *entry)
 {
-    if (index >= bb_state.entry_count) {
+    if (entry == NULL || index >= bb_state.entry_count) {
         return false;
     }
 
+    uint32_t offset = FLASH_DATA_START_OFFSET + index * (sizeof(uint8_t) + sizeof(uint16_t) + sizeof(BlackboxDataEntry));
+    if (offset >= BLACKBOX_FLASH_SIZE) {
+        offset = FLASH_DATA_START_OFFSET + (offset - BLACKBOX_FLASH_SIZE);
+    }
+
+    flash_driver_read(offset, (uint8_t *)entry, sizeof(BlackboxLogEntry));
     return true;
 }
 
@@ -240,6 +300,23 @@ bool blackbox_read_range(uint32_t start_index, uint32_t count, uint8_t *buffer, 
     }
 
     *bytes_read = 0;
+    uint32_t entry_size = sizeof(uint8_t) + sizeof(uint16_t) + sizeof(BlackboxDataEntry);
+
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t idx = start_index + i;
+        if (idx >= bb_state.entry_count) break;
+
+        uint32_t offset = FLASH_DATA_START_OFFSET + idx * entry_size;
+        while (offset >= BLACKBOX_FLASH_SIZE) {
+            offset -= (BLACKBOX_FLASH_SIZE - FLASH_DATA_START_OFFSET);
+        }
+
+        BlackboxLogEntry entry;
+        flash_driver_read(offset, (uint8_t *)&entry, entry_size);
+        memcpy(&buffer[*bytes_read], &entry, entry_size);
+        *bytes_read += entry_size;
+    }
+
     return true;
 }
 
@@ -269,10 +346,6 @@ void blackbox_check_anomalies(void)
         }
     }
     bb_state.last_voltage = battery.voltage;
-
-    GPSPosition gps_pos;
-    GPSVelocity gps_vel;
-    sensor_manager_get_gps(&gps_pos, &gps_vel);
 
     uint32_t gps_time = HAL_GetTick();
     if (sensor_manager_check_gps_timeout()) {
@@ -319,6 +392,9 @@ void blackbox_reset(void)
     flash_write_ptr = FLASH_DATA_START_OFFSET;
     buffer_index = 0;
     memset(flash_buffer, 0, sizeof(flash_buffer));
+    if (flash_memory_sim != NULL) {
+        memset(flash_memory_sim, 0xFF, BLACKBOX_FLASH_SIZE);
+    }
 }
 
 void blackbox_get_info(BlackboxInfo *info)
@@ -328,8 +404,8 @@ void blackbox_get_info(BlackboxInfo *info)
     memset(info, 0, sizeof(BlackboxInfo));
     info->total_entries = bb_state.entry_count;
     info->total_bytes = bb_state.entry_count * sizeof(BlackboxLogEntry);
-    info->start_time = bb_state.header.start_time;
-    info->end_time = bb_state.header.end_time;
+    info->start_time = bb_header.start_time;
+    info->end_time = bb_header.end_time;
     info->flight_id = bb_state.current_flight_id;
     info->is_recording = bb_state.recording;
 }
@@ -351,7 +427,11 @@ bool blackbox_read_data(uint32_t offset, uint8_t *buffer, uint32_t length)
         if (flash_offset >= BLACKBOX_FLASH_SIZE) {
             flash_offset = FLASH_DATA_START_OFFSET + (flash_offset - BLACKBOX_FLASH_SIZE);
         }
-        buffer[i] = flash_memory[flash_offset];
+        if (flash_memory_sim != NULL) {
+            buffer[i] = flash_memory_sim[flash_offset];
+        } else {
+            buffer[i] = 0xFF;
+        }
     }
     
     return true;

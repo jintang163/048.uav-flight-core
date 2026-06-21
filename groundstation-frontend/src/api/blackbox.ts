@@ -71,6 +71,15 @@ export const getBlackboxStatistics = (params?: {
 export const autoUploadBlackbox = (data: {
   uav_id: string | number
   mission_id?: string | number
+  file?: File
 }): Promise<BlackboxLog> => {
-  return post<BlackboxLog>('/blackbox/auto-upload', data)
+  const formData = new FormData()
+  formData.append('uav_id', String(data.uav_id))
+  if (data.mission_id !== undefined && data.mission_id !== null) {
+    formData.append('mission_id', String(data.mission_id))
+  }
+  if (data.file) {
+    formData.append('file', data.file)
+  }
+  return post<BlackboxLog>('/blackbox/auto-upload', formData)
 }

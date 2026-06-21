@@ -229,3 +229,10 @@ FlightControlState flight_controller_get_state(void)
 {
     return fc_data.state;
 }
+
+void flight_controller_get_position(PositionState *pos)
+{
+    if (pos != NULL) {
+        *pos = fc_data.position;
+    }
+}

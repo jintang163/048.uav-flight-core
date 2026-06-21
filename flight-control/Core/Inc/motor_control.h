@@ -42,5 +42,6 @@ void motor_control_mix_quad_x(float throttle, float roll, float pitch, float yaw
 float motor_control_get_throttle_curve(float throttle);
 void motor_control_enable_safety(void);
 void motor_control_disable_safety(void);
+void motor_control_get_state(MotorState *state);
 
 #endif

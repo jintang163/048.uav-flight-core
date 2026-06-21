@@ -254,7 +254,7 @@ func ExportBlackboxReport(c *gin.Context) {
 		return
 	}
 
-	c.FileAttachment(filePath, "flight_report.txt")
+	c.FileAttachment(filePath, "flight_report.pdf")
 }
 
 func GetBlackboxReports(c *gin.Context) {
@@ -288,17 +288,38 @@ func AnalyzeBlackbox(c *gin.Context) {
 }
 
 func AutoUploadBlackbox(c *gin.Context) {
-	var req service.AutoUploadRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "参数错误: "+err.Error(), nil)
+	uavIDStr := c.PostForm("uav_id")
+	if uavIDStr == "" {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "uav_id is required", nil)
 		return
 	}
-
-	log, err := blackboxService.AutoUpload(&req)
+	uavID, err := utils.ParseUint64(uavIDStr)
 	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, "自动上传失败: "+err.Error(), nil)
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "invalid uav_id: "+err.Error(), nil)
 		return
 	}
 
-	utils.SuccessResponse(c, "自动上传成功", log)
+	missionIDStr := c.PostForm("mission_id")
+	missionID := uint64(0)
+	if missionIDStr != "" {
+		missionID, err = utils.ParseUint64(missionIDStr)
+		if err != nil {
+			utils.ErrorResponse(c, http.StatusBadRequest, 400001, "invalid mission_id: "+err.Error(), nil)
+			return
+		}
+	}
+
+	file, err := c.FormFile("file")
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400002, "please select file: "+err.Error(), nil)
+		return
+	}
+
+	log, err := blackboxService.AutoUpload(uavID, missionID, file)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, "auto upload failed: "+err.Error(), nil)
+		return
+	}
+
+	utils.SuccessResponse(c, "auto upload success", log)
 }

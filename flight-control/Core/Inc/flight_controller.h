@@ -52,5 +52,6 @@ void flight_controller_trigger_failsafe(void);
 void flight_controller_clear_failsafe(void);
 bool flight_controller_is_failsafe_active(void);
 FlightControlState flight_controller_get_state(void);
+void flight_controller_get_position(PositionState *pos);
 
 #endif

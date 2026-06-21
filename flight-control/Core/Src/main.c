@@ -11,6 +11,7 @@
 #include "task_health_monitor.h"
 #include "task_formation.h"
 #include "task_tracking.h"
+#include "task_blackbox.h"
 
 I2C_HandleTypeDef hi2c1;
 TIM_HandleTypeDef htim1;
@@ -60,6 +61,7 @@ int main(void)
     task_health_monitor_init();
     task_formation_init();
     task_tracking_init();
+    task_blackbox_init();
 
     vTaskStartScheduler();
 

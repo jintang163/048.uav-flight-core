@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/csv"
@@ -17,11 +18,49 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/signintech/gopdf"
 )
+
+const (
+	BlackboxHeaderMagic   = 0x424C4B58
+	BlackboxLogTypeData   = 0x01
+	BlackboxLogTypeEvent  = 0x02
+	BlackboxHeaderSize    = 37
+	BlackboxEntryHeadSize = 3
+)
+
+var eventTypeMap = map[uint32]string{
+	1 << 0:  "LOW_BATTERY",
+	1 << 1:  "GPS_LOSS",
+	1 << 2:  "RC_LOSS",
+	1 << 3:  "VOLTAGE_DIP",
+	1 << 4:  "MOTOR_FAILURE",
+	1 << 5:  "CRASH",
+	1 << 6:  "FENCE_BREACH",
+	1 << 7:  "ARM",
+	1 << 8:  "DISARM",
+	1 << 9:  "TAKEOFF",
+	1 << 10: "LAND",
+	1 << 11: "MODE_CHANGE",
+	1 << 12: "FAILSAFE",
+}
+
+type BlackboxHeader struct {
+	Magic        uint32
+	Version      uint8
+	FlightID     uint32
+	StartTime    uint32
+	EndTime      uint32
+	TotalEntries uint32
+	DataSize     uint32
+	SampleRate   uint16
+	Reserved     [10]uint8
+}
 
 type BlackboxService struct {
 	blackboxRepo *repository.BlackboxRepository
@@ -206,64 +245,55 @@ func (s *BlackboxService) UploadLog(req *UploadLogRequest, uploaderID uint64) (*
 	return log, nil
 }
 
-type AutoUploadRequest struct {
-	UAVID     uint64 `json:"uav_id" binding:"required"`
-	MissionID uint64 `json:"mission_id"`
-}
-
-func (s *BlackboxService) AutoUpload(req *AutoUploadRequest) (*models.BlackboxLog, error) {
+func (s *BlackboxService) AutoUpload(uavID uint64, missionID uint64, file *multipart.FileHeader) (*models.BlackboxLog, error) {
 	cfg := config.AppConfig.MinIO
 
-	uav, err := s.uavRepo.FindByID(req.UAVID)
+	if file == nil || file.Size == 0 {
+		return nil, errors.New("empty or missing file")
+	}
+
+	uav, err := s.uavRepo.FindByID(uavID)
 	if err != nil {
 		return nil, errors.New("uav not found")
 	}
 
 	flightName := fmt.Sprintf("Flight_%s_%s", uav.Name, time.Now().Format("20060102_150405"))
 
-	mockData := s.generateMockData()
+	src, err := file.Open()
+	if err != nil {
+		return nil, fmt.Errorf("open file failed: %w", err)
+	}
+	defer src.Close()
+
+	fileData, err := io.ReadAll(src)
+	if err != nil {
+		return nil, fmt.Errorf("read file failed: %w", err)
+	}
+
+	header, err := s.parseBlackboxHeaderFromBytes(fileData)
+	if err != nil {
+		return nil, fmt.Errorf("parse header failed: %w", err)
+	}
 
 	tmpDir := "./data/blackbox"
 	os.MkdirAll(tmpDir, 0755)
-	fileName := fmt.Sprintf("blackbox_%d_%s.bin", req.UAVID, time.Now().Format("20060102_150405"))
+	ext := filepath.Ext(file.Filename)
+	if ext == "" {
+		ext = ".bin"
+	}
+	fileName := fmt.Sprintf("blackbox_%d_%s%s", uavID, time.Now().Format("20060102_150405"), ext)
 	filePath := filepath.Join(tmpDir, fileName)
 
-	file, err := os.Create(filePath)
-	if err != nil {
-		return nil, err
+	if err := os.WriteFile(filePath, fileData, 0644); err != nil {
+		return nil, fmt.Errorf("save file failed: %w", err)
 	}
 
-	headerData := make([]byte, 64)
-	copy(headerData[:4], []byte("BLKX"))
-	file.Write(headerData)
-
-	for _, dp := range mockData.DataPoints {
-		dataBytes := make([]byte, 128)
-		binary.LittleEndian.PutUint32(dataBytes[0:4], uint32(dp.Timestamp))
-		binary.LittleEndian.PutUint32(dataBytes[4:8], uint32(dp.Latitude*1e7))
-		binary.LittleEndian.PutUint32(dataBytes[8:12], uint32(dp.Longitude*1e7))
-		binary.LittleEndian.PutUint32(dataBytes[12:16], uint32(dp.Altitude*100))
-		binary.LittleEndian.PutUint32(dataBytes[16:20], math.Float32bits(float32(dp.Roll)))
-		binary.LittleEndian.PutUint32(dataBytes[20:24], math.Float32bits(float32(dp.Pitch)))
-		binary.LittleEndian.PutUint32(dataBytes[24:28], math.Float32bits(float32(dp.Yaw)))
-		binary.LittleEndian.PutUint32(dataBytes[28:32], math.Float32bits(float32(dp.Voltage)))
-		file.Write(dataBytes)
-	}
-	file.Close()
-
-	fileInfo, _ := os.Stat(filePath)
-	fileSize := fileInfo.Size()
-
-	objectName := fmt.Sprintf("blackbox/%d/%s", req.UAVID, fileName)
-
-	fileReader, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
-	}
-	defer fileReader.Close()
+	fileSize := int64(len(fileData))
+	objectName := fmt.Sprintf("blackbox/%d/%s", uavID, fileName)
 
 	uploaded := false
 	if s.minioClient != nil && cfg.BucketLogs != "" {
+		fileReader := bytes.NewReader(fileData)
 		_, err = s.minioClient.PutObject(context.Background(), cfg.BucketLogs, objectName, fileReader,
 			fileSize, minio.PutObjectOptions{ContentType: "application/octet-stream"})
 		if err == nil {
@@ -277,16 +307,31 @@ func (s *BlackboxService) AutoUpload(req *AutoUploadRequest) (*models.BlackboxLo
 
 	hash := utils.MD5(fmt.Sprintf("%s-%d-%s", fileName, fileSize, time.Now().String()))
 
-	startTime := time.Now().Add(-time.Duration(mockData.Statistics.TotalDuration) * time.Second)
+	dataPoints, events, parseErr := s.parseBinaryLog(bytes.NewReader(fileData), nil)
+	stats := LogStatistics{}
+	if parseErr == nil && len(dataPoints) > 0 {
+		stats = s.calculateStatistics(dataPoints, events)
+	}
+
+	startTime := time.Now()
 	endTime := time.Now()
+	duration := 0
+	if header.StartTime > 0 && header.EndTime > 0 {
+		startTime = time.Unix(int64(header.StartTime), 0)
+		endTime = time.Unix(int64(header.EndTime), 0)
+		duration = int(header.EndTime - header.StartTime)
+	} else if stats.TotalDuration > 0 {
+		startTime = time.Now().Add(-time.Duration(stats.TotalDuration) * time.Second)
+		duration = int(stats.TotalDuration)
+	}
 
 	log := &models.BlackboxLog{
-		UAVID:         req.UAVID,
-		MissionID:     req.MissionID,
+		UAVID:         uavID,
+		MissionID:     missionID,
 		FlightName:    flightName,
 		StartTime:     &startTime,
 		EndTime:       &endTime,
-		Duration:      int(mockData.Statistics.TotalDuration),
+		Duration:      duration,
 		FileSize:      fileSize,
 		FileName:      fileName,
 		FileURL:       objectName,
@@ -295,11 +340,11 @@ func (s *BlackboxService) AutoUpload(req *AutoUploadRequest) (*models.BlackboxLo
 		FileHash:      hash,
 		UploaderID:    0,
 		Notes:         "Auto-uploaded after landing",
-		MaxAltitude:   mockData.Statistics.MaxAltitude,
-		MaxSpeed:      mockData.Statistics.MaxSpeed,
-		Distance:      mockData.Statistics.TotalDistance,
-		BatteryUsed:   mockData.Statistics.BatteryUsed,
-		CrashDetected: mockData.Statistics.CrashDetected,
+		MaxAltitude:   stats.MaxAltitude,
+		MaxSpeed:      stats.MaxSpeed,
+		Distance:      stats.TotalDistance,
+		BatteryUsed:   stats.BatteryUsed,
+		CrashDetected: stats.CrashDetected,
 	}
 
 	if err := s.blackboxRepo.Create(log); err != nil {
@@ -309,6 +354,47 @@ func (s *BlackboxService) AutoUpload(req *AutoUploadRequest) (*models.BlackboxLo
 	go s.analyzeLogAsync(log.ID)
 
 	return log, nil
+}
+
+func (s *BlackboxService) parseBlackboxHeaderFromBytes(data []byte) (*BlackboxHeader, error) {
+	if len(data) < 64 {
+		return nil, fmt.Errorf("file too small for header: %d bytes", len(data))
+	}
+
+	headerBuf := bytes.NewReader(data[0:BlackboxHeaderSize])
+	var header BlackboxHeader
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.Magic); err != nil {
+		return nil, err
+	}
+	if header.Magic != BlackboxHeaderMagic {
+		return nil, fmt.Errorf("invalid magic: 0x%X", header.Magic)
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.Version); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.FlightID); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.StartTime); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.EndTime); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.TotalEntries); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.DataSize); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.SampleRate); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.Reserved); err != nil {
+		return nil, err
+	}
+
+	return &header, nil
 }
 
 func (s *BlackboxService) analyzeLogAsync(logID uint64) {
@@ -410,23 +496,23 @@ func (s *BlackboxService) parseLogFile(log *models.BlackboxLog) ([]LogDataPoint,
 	if s.minioClient != nil {
 		reader, err = s.minioClient.GetObject(context.Background(), cfg.BucketLogs, log.FileURL, minio.GetObjectOptions{})
 		if err != nil {
-			if _, err := os.Stat(log.FileURL); err == nil {
+			if _, statErr := os.Stat(log.FileURL); statErr == nil {
 				reader, err = os.Open(log.FileURL)
 				if err != nil {
-					return s.generateMockData(log)
+					return nil, nil, fmt.Errorf("open local file failed: %w", err)
 				}
 			} else {
-				return s.generateMockData(log)
+				return nil, nil, fmt.Errorf("file not found in minio or local: %w", err)
 			}
 		}
 	} else {
-		if _, err := os.Stat(log.FileURL); err == nil {
+		if _, statErr := os.Stat(log.FileURL); statErr == nil {
 			reader, err = os.Open(log.FileURL)
 			if err != nil {
-				return s.generateMockData(log)
+				return nil, nil, fmt.Errorf("open local file failed: %w", err)
 			}
 		} else {
-			return s.generateMockData(log)
+			return nil, nil, fmt.Errorf("file not found: %s", log.FileURL)
 		}
 	}
 	defer reader.Close()
@@ -435,7 +521,241 @@ func (s *BlackboxService) parseLogFile(log *models.BlackboxLog) ([]LogDataPoint,
 }
 
 func (s *BlackboxService) parseBinaryLog(reader io.Reader, log *models.BlackboxLog) ([]LogDataPoint, []LogEvent, error) {
-	return s.generateMockData(log)
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read log data failed: %w", err)
+	}
+
+	if len(data) < BlackboxHeaderSize {
+		return nil, nil, fmt.Errorf("log file too small: %d bytes", len(data))
+	}
+
+	headerBuf := bytes.NewReader(data[:BlackboxHeaderSize])
+	var header BlackboxHeader
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.Magic); err != nil {
+		return nil, nil, fmt.Errorf("read magic failed: %w", err)
+	}
+	if header.Magic != BlackboxHeaderMagic {
+		return nil, nil, fmt.Errorf("invalid magic number: 0x%X, expected 0x%X", header.Magic, BlackboxHeaderMagic)
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.Version); err != nil {
+		return nil, nil, fmt.Errorf("read version failed: %w", err)
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.FlightID); err != nil {
+		return nil, nil, fmt.Errorf("read flight_id failed: %w", err)
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.StartTime); err != nil {
+		return nil, nil, fmt.Errorf("read start_time failed: %w", err)
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.EndTime); err != nil {
+		return nil, nil, fmt.Errorf("read end_time failed: %w", err)
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.TotalEntries); err != nil {
+		return nil, nil, fmt.Errorf("read total_entries failed: %w", err)
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.DataSize); err != nil {
+		return nil, nil, fmt.Errorf("read data_size failed: %w", err)
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.SampleRate); err != nil {
+		return nil, nil, fmt.Errorf("read sample_rate failed: %w", err)
+	}
+	if err := binary.Read(headerBuf, binary.LittleEndian, &header.Reserved); err != nil {
+		return nil, nil, fmt.Errorf("read reserved failed: %w", err)
+	}
+
+	var dataPoints []LogDataPoint
+	var events []LogEvent
+
+	offset := BlackboxHeaderSize
+	for offset+BlackboxEntryHeadSize <= len(data) {
+		entryType := data[offset]
+		entrySize := binary.LittleEndian.Uint16(data[offset+1 : offset+3])
+		offset += BlackboxEntryHeadSize
+
+		if offset+int(entrySize) > len(data) {
+			break
+		}
+
+		entryData := data[offset : offset+int(entrySize)]
+
+		switch entryType {
+		case BlackboxLogTypeData:
+			dp, err := s.parseDataEntry(entryData)
+			if err == nil {
+				dataPoints = append(dataPoints, dp)
+			}
+		case BlackboxLogTypeEvent:
+			event, err := s.parseEventEntry(entryData)
+			if err == nil {
+				events = append(events, event)
+			}
+		}
+
+		offset += int(entrySize)
+	}
+
+	return dataPoints, events, nil
+}
+
+func (s *BlackboxService) parseDataEntry(data []byte) (LogDataPoint, error) {
+	var dp LogDataPoint
+	buf := bytes.NewReader(data)
+
+	var timestamp uint32
+	if err := binary.Read(buf, binary.LittleEndian, &timestamp); err != nil {
+		return dp, err
+	}
+	dp.Timestamp = int64(timestamp)
+
+	var lat, lon, alt int32
+	if err := binary.Read(buf, binary.LittleEndian, &lat); err != nil {
+		return dp, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &lon); err != nil {
+		return dp, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &alt); err != nil {
+		return dp, err
+	}
+	dp.Latitude = float64(lat) / 1e7
+	dp.Longitude = float64(lon) / 1e7
+	dp.Altitude = float64(alt) / 1000.0
+
+	var roll, pitch, yaw, vx, vy, vz, voltage, current, throttle float32
+	if err := binary.Read(buf, binary.LittleEndian, &roll); err != nil {
+		return dp, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &pitch); err != nil {
+		return dp, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &yaw); err != nil {
+		return dp, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &vx); err != nil {
+		return dp, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &vy); err != nil {
+		return dp, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &vz); err != nil {
+		return dp, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &voltage); err != nil {
+		return dp, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &current); err != nil {
+		return dp, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &throttle); err != nil {
+		return dp, err
+	}
+	dp.Roll = float64(roll)
+	dp.Pitch = float64(pitch)
+	dp.Yaw = float64(yaw)
+	dp.Vx = float64(vx)
+	dp.Vy = float64(vy)
+	dp.Vz = float64(vz)
+	dp.Voltage = float64(voltage)
+	dp.Current = float64(current)
+	dp.Throttle = float64(throttle)
+
+	rcChannels := make([]uint16, 8)
+	for i := 0; i < 8; i++ {
+		if err := binary.Read(buf, binary.LittleEndian, &rcChannels[i]); err != nil {
+			return dp, err
+		}
+	}
+	dp.RCChannels = make([]int, 8)
+	for i := 0; i < 8; i++ {
+		dp.RCChannels[i] = int(rcChannels[i])
+	}
+
+	motorPWM := make([]uint16, 4)
+	for i := 0; i < 4; i++ {
+		if err := binary.Read(buf, binary.LittleEndian, &motorPWM[i]); err != nil {
+			return dp, err
+		}
+	}
+	dp.MotorPWM = make([]int, 4)
+	for i := 0; i < 4; i++ {
+		dp.MotorPWM[i] = int(motorPWM[i])
+	}
+
+	var flightMode, satellites, gpsFixType, errorFlags uint8
+	if err := binary.Read(buf, binary.LittleEndian, &flightMode); err != nil {
+		return dp, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &satellites); err != nil {
+		return dp, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &gpsFixType); err != nil {
+		return dp, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &errorFlags); err != nil {
+		return dp, err
+	}
+	dp.FlightMode = int(flightMode)
+	dp.Satellites = int(satellites)
+	dp.GPSFixType = int(gpsFixType)
+	dp.ErrorFlags = int(errorFlags)
+
+	return dp, nil
+}
+
+func (s *BlackboxService) parseEventEntry(data []byte) (LogEvent, error) {
+	var event LogEvent
+	buf := bytes.NewReader(data)
+
+	var timestamp uint32
+	if err := binary.Read(buf, binary.LittleEndian, &timestamp); err != nil {
+		return event, err
+	}
+	event.Timestamp = int64(timestamp)
+
+	var eventType uint32
+	if err := binary.Read(buf, binary.LittleEndian, &eventType); err != nil {
+		return event, err
+	}
+	event.EventTypeID = eventType
+	if name, ok := eventTypeMap[eventType]; ok {
+		event.EventType = name
+	} else {
+		event.EventType = fmt.Sprintf("UNKNOWN(0x%X)", eventType)
+	}
+
+	var param1, param2 int32
+	if err := binary.Read(buf, binary.LittleEndian, &param1); err != nil {
+		return event, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &param2); err != nil {
+		return event, err
+	}
+	event.Param1 = param1
+	event.Param2 = param2
+
+	var param3, param4 float32
+	if err := binary.Read(buf, binary.LittleEndian, &param3); err != nil {
+		return event, err
+	}
+	if err := binary.Read(buf, binary.LittleEndian, &param4); err != nil {
+		return event, err
+	}
+	event.Param3 = param3
+	event.Param4 = param4
+
+	var severity uint8
+	if err := binary.Read(buf, binary.LittleEndian, &severity); err != nil {
+		return event, err
+	}
+	event.Severity = int(severity)
+
+	descBytes := make([]byte, 64)
+	if err := binary.Read(buf, binary.LittleEndian, &descBytes); err != nil {
+		return event, err
+	}
+	event.Description = string(bytes.TrimRight(descBytes, "\x00"))
+
+	return event, nil
 }
 
 func (s *BlackboxService) generateMockData(log *models.BlackboxLog) ([]LogDataPoint, []LogEvent, error) {
@@ -834,109 +1154,187 @@ func (s *BlackboxService) ExportPDF(logID uint64) (string, error) {
 
 	tmpDir := "./data/exports"
 	os.MkdirAll(tmpDir, 0755)
-	fileName := fmt.Sprintf("report_%d_%s.txt", logID, time.Now().Format("20060102_150405"))
+	fileName := fmt.Sprintf("report_%d_%s.pdf", logID, time.Now().Format("20060102_150405"))
 	filePath := filepath.Join(tmpDir, fileName)
 
-	content := s.generateReportText(log, report)
+	pdf := &gopdf.GoPdf{}
+	pdf.Start(gopdf.Config{PageSize: *gopdf.PageSizeA4})
+	pdf.AddPage()
 
-	err = os.WriteFile(filePath, []byte(content), 0644)
+	title := "Flight Log Analysis Report"
+	pdf.SetFont("Helvetica", "B", 20)
+	titleWidth, _ := pdf.MeasureTextWidth(title)
+	pdf.SetX((gopdf.PageSizeA4.W - titleWidth) / 2)
+	pdf.Cell(nil, title)
+	pdf.Br(30)
+
+	s.pdfAddSectionTitle(&pdf, "1. Basic Information")
+	s.pdfAddBasicInfoTable(&pdf, log, report)
+	pdf.Br(10)
+
+	s.pdfAddSectionTitle(&pdf, "2. Flight Statistics")
+	s.pdfAddStatisticsTable(&pdf, report)
+	pdf.Br(10)
+
+	s.pdfAddSectionTitle(&pdf, "3. Anomaly Events")
+	s.pdfAddAnomalyList(&pdf, report)
+	pdf.Br(10)
+
+	s.pdfAddSectionTitle(&pdf, "4. Recommendations")
+	s.pdfAddRecommendations(&pdf, report)
+	pdf.Br(10)
+
+	s.pdfAddSectionTitle(&pdf, "5. Flight Summary")
+	pdf.SetFont("Helvetica", "", 11)
+	summary := report.FlightSummary
+	s.pdfDrawTextWrap(&pdf, summary, 40, gopdf.PageSizeA4.W-80)
+
+	err = pdf.WritePdf(filePath)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("write pdf failed: %w", err)
 	}
 
 	return filePath, nil
 }
 
-func (s *BlackboxService) generateReportText(log *models.BlackboxLog, report *AnalysisReport) string {
-	content := fmt.Sprintf(`============================================================
-                飞行日志分析报告
-============================================================
+func (s *BlackboxService) pdfAddSectionTitle(pdf **gopdf.GoPdf, title string) {
+	(*pdf).SetFont("Helvetica", "B", 14)
+	(*pdf).SetTextColor(0, 51, 102)
+	(*pdf).Cell(nil, title)
+	(*pdf).Br(12)
+	(*pdf).SetTextColor(0, 0, 0)
+}
 
-一、基本信息
-------------------------------------------------------------
-日志ID:     %d
-飞行名称:   %s
-无人机ID:   %d
-开始时间:   %s
-结束时间:   %s
-飞行时长:   %.0f 秒
-文件大小:   %d bytes
+func (s *BlackboxService) pdfAddBasicInfoTable(pdf **gopdf.GoPdf, log *models.BlackboxLog, report *AnalysisReport) {
+	startTimeStr := "-"
+	endTimeStr := "-"
+	if log.StartTime != nil {
+		startTimeStr = log.StartTime.Format("2006-01-02 15:04:05")
+	}
+	if log.EndTime != nil {
+		endTimeStr = log.EndTime.Format("2006-01-02 15:04:05")
+	}
 
-二、飞行统计
-------------------------------------------------------------
-最大高度:       %.2f 米
-最大速度:       %.2f m/s
-总飞行距离:     %.2f 米
-平均电压:       %.2f V
-最低电压:       %.2f V
-电池使用量:     %.1f %%
-最大横滚角:     %.1f °
-最大俯仰角:     %.1f °
-平均卫星数:     %.1f 颗
-异常事件数:     %d 个
-飞行评分:       %d 分
+	basicInfo := [][]string{
+		{"Log ID", fmt.Sprintf("%d", log.ID)},
+		{"Flight Name", log.FlightName},
+		{"UAV ID", fmt.Sprintf("%d", log.UAVID)},
+		{"Mission ID", fmt.Sprintf("%d", log.MissionID)},
+		{"Start Time", startTimeStr},
+		{"End Time", endTimeStr},
+		{"Duration (s)", fmt.Sprintf("%.0f", report.Statistics.TotalDuration)},
+		{"File Size (bytes)", fmt.Sprintf("%d", log.FileSize)},
+		{"Flight Score", fmt.Sprintf("%d", report.FlightScore)},
+	}
 
-三、飞行评分
-------------------------------------------------------------
-`, log.ID, log.FlightName, log.UAVID,
-		log.StartTime.Format("2006-01-02 15:04:05"),
-		log.EndTime.Format("2006-01-02 15:04:05"),
-		report.Statistics.TotalDuration,
-		log.FileSize,
-		report.Statistics.MaxAltitude,
-		report.Statistics.MaxSpeed,
-		report.Statistics.TotalDistance,
-		report.Statistics.AvgVoltage,
-		report.Statistics.MinVoltage,
-		report.Statistics.BatteryUsed,
-		report.Statistics.MaxRoll,
-		report.Statistics.MaxPitch,
-		report.Statistics.AvgSatellites,
-		report.Statistics.AnomalyCount,
-		report.FlightScore,
-	)
+	s.pdfDrawTable(pdf, basicInfo, []float64{80, 200})
+}
 
-	content += fmt.Sprintf(`
-四、飞行摘要
-------------------------------------------------------------
-%s
+func (s *BlackboxService) pdfAddStatisticsTable(pdf **gopdf.GoPdf, report *AnalysisReport) {
+	stats := [][]string{
+		{"Max Altitude (m)", fmt.Sprintf("%.2f", report.Statistics.MaxAltitude)},
+		{"Max Speed (m/s)", fmt.Sprintf("%.2f", report.Statistics.MaxSpeed)},
+		{"Total Distance (m)", fmt.Sprintf("%.2f", report.Statistics.TotalDistance)},
+		{"Avg Voltage (V)", fmt.Sprintf("%.2f", report.Statistics.AvgVoltage)},
+		{"Min Voltage (V)", fmt.Sprintf("%.2f", report.Statistics.MinVoltage)},
+		{"Battery Used (%)", fmt.Sprintf("%.1f", report.Statistics.BatteryUsed)},
+		{"Max Roll (deg)", fmt.Sprintf("%.1f", report.Statistics.MaxRoll)},
+		{"Max Pitch (deg)", fmt.Sprintf("%.1f", report.Statistics.MaxPitch)},
+		{"Avg Satellites", fmt.Sprintf("%.1f", report.Statistics.AvgSatellites)},
+		{"Anomaly Count", fmt.Sprintf("%d", report.Statistics.AnomalyCount)},
+		{"Crash Detected", fmt.Sprintf("%t", report.Statistics.CrashDetected)},
+	}
 
-五、异常事件
-------------------------------------------------------------
-`, report.FlightSummary)
+	s.pdfDrawTable(pdf, stats, []float64{120, 180})
+}
 
+func (s *BlackboxService) pdfAddAnomalyList(pdf **gopdf.GoPdf, report *AnalysisReport) {
+	(*pdf).SetFont("Helvetica", "", 11)
 	if len(report.Anomalies) == 0 {
-		content += "本次飞行未检测到异常事件。\n"
-	} else {
-		for i, anomaly := range report.Anomalies {
-			content += fmt.Sprintf("%d. [%s] %s (严重程度: %d)\n",
-				i+1, anomaly.EventType, anomaly.Description, anomaly.Severity)
+		(*pdf).Cell(nil, "No anomaly events detected during this flight.")
+		(*pdf).Br(8)
+		return
+	}
+
+	for i, anomaly := range report.Anomalies {
+		line := fmt.Sprintf("%d. [%s] %s (Severity: %d)", i+1, anomaly.EventType, anomaly.Description, anomaly.Severity)
+		s.pdfDrawTextWrap(pdf, line, 40, gopdf.PageSizeA4.W-80)
+	}
+}
+
+func (s *BlackboxService) pdfAddRecommendations(pdf **gopdf.GoPdf, report *AnalysisReport) {
+	(*pdf).SetFont("Helvetica", "", 11)
+	for i, rec := range report.Recommendations {
+		line := fmt.Sprintf("%d. %s", i+1, rec)
+		s.pdfDrawTextWrap(pdf, line, 40, gopdf.PageSizeA4.W-80)
+	}
+}
+
+func (s *BlackboxService) pdfDrawTable(pdf **gopdf.GoPdf, rows [][]string, colWidths []float64) {
+	(*pdf).SetFont("Helvetica", "", 11)
+	startX := (*pdf).GetX()
+	startY := (*pdf).GetY()
+	cellHeight := 18.0
+
+	for rowIdx, row := range rows {
+		x := startX
+		for colIdx, cell := range row {
+			w := colWidths[colIdx]
+			(*pdf).SetX(x)
+			(*pdf).SetY(startY + float64(rowIdx)*cellHeight)
+
+			(*pdf).Rect(x, startY+float64(rowIdx)*cellHeight, w, cellHeight, "D")
+
+			if rowIdx == 0 {
+				(*pdf).SetFont("Helvetica", "B", 11)
+			} else {
+				(*pdf).SetFont("Helvetica", "", 11)
+			}
+
+			(*pdf).SetX(x + 5)
+			(*pdf).SetY(startY + float64(rowIdx)*cellHeight + 5)
+			(*pdf).Cell(nil, cell)
+
+			x += w
 		}
 	}
 
-	content += `
-六、飞行阶段
-------------------------------------------------------------
-`
-	for _, phase := range report.FlightPhases {
-		content += fmt.Sprintf("%s: %.0f 秒\n", phase.PhaseName, phase.Duration)
+	(*pdf).SetY(startY + float64(len(rows))*cellHeight + 5)
+	(*pdf).SetX(startX)
+}
+
+func (s *BlackboxService) pdfDrawTextWrap(pdf **gopdf.GoPdf, text string, x, maxWidth float64) {
+	(*pdf).SetFont("Helvetica", "", 11)
+	(*pdf).SetX(x)
+
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		(*pdf).Br(14)
+		return
 	}
 
-	content += `
-七、建议
-------------------------------------------------------------
-`
-	for i, rec := range report.Recommendations {
-		content += fmt.Sprintf("%d. %s\n", i+1, rec)
+	currentLine := ""
+	for _, word := range words {
+		testLine := currentLine
+		if testLine != "" {
+			testLine += " "
+		}
+		testLine += word
+
+		lineWidth, _ := (*pdf).MeasureTextWidth(testLine)
+		if lineWidth > maxWidth && currentLine != "" {
+			(*pdf).Cell(nil, currentLine)
+			(*pdf).Br(14)
+			(*pdf).SetX(x)
+			currentLine = word
+		} else {
+			currentLine = testLine
+		}
 	}
-
-	content += `
-============================================================
-                      报告结束
-============================================================
-`
-
-	return content
+	if currentLine != "" {
+		(*pdf).Cell(nil, currentLine)
+		(*pdf).Br(14)
+	}
 }
 
 func (s *BlackboxService) GetStatistics(uavID uint64, startTime, endTime time.Time) (map[string]interface{}, error) {
