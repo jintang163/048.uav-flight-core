@@ -132,6 +132,14 @@ const routes: RouteObject[] = [
         )
       },
       {
+        path: 'payload-missions',
+        element: (
+          <Suspense fallback={<Loading />}>
+            <PayloadManagement />
+          </Suspense>
+        )
+      },
+      {
         path: 'alert-center',
         element: (
           <Suspense fallback={<Loading />}>

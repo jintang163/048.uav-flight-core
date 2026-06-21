@@ -14,7 +14,29 @@ import {
   updateDetections,
   updateActiveTask
 } from '@/store/slices/tracking'
-import type { TelemetryData, Alert, GeofenceViolation, UAVStatus, UAVMode, DetectionTarget, TrackingTask } from '@/types'
+import {
+  updateCameraStatus,
+  updateSprayerStatus,
+  updatePayloadDevice,
+  updateOrbitMission,
+  updateOrthoMission,
+  updateTTSTask
+} from '@/store/slices/payload'
+import type {
+  TelemetryData,
+  Alert,
+  GeofenceViolation,
+  UAVStatus,
+  UAVMode,
+  DetectionTarget,
+  TrackingTask,
+  CameraStatus,
+  SprayerStatus,
+  PayloadDevice,
+  OrbitMission,
+  OrthoMission,
+  TextToSpeechTask
+} from '@/types'
 import type { FormationCollisionWarning } from '@/types/formation'
 import type WebSocketClient from './client'
 
@@ -150,6 +172,58 @@ export const setupTelemetryHandlers = (wsClient: WebSocketClient, dispatch: Disp
     const { tracking_task } = data as { tracking_task: TrackingTask }
     if (tracking_task) {
       dispatch(updateActiveTask(tracking_task))
+    }
+  })
+
+  wsClient.on('camera_status', (data: unknown) => {
+    const { payloadId, status } = data as { payloadId: string; status: CameraStatus }
+    if (payloadId && status) {
+      dispatch(updateCameraStatus({ payloadId, status }))
+    }
+  })
+
+  wsClient.on('sprayer_status', (data: unknown) => {
+    const { payloadId, status } = data as { payloadId: string; status: SprayerStatus }
+    if (payloadId && status) {
+      dispatch(updateSprayerStatus({ payloadId, status }))
+    }
+  })
+
+  wsClient.on('payload_status', (data: unknown) => {
+    const payload = data as PayloadDevice
+    if (payload && payload.id) {
+      dispatch(updatePayloadDevice(payload))
+    }
+  })
+
+  wsClient.on('camera_feedback', (data: unknown) => {
+    const { payloadId, photoCount } = data as { payloadId: string; photoCount: number }
+    if (payloadId) {
+      dispatch(updateCameraStatus({
+        payloadId,
+        status: { photoCount } as CameraStatus
+      }))
+    }
+  })
+
+  wsClient.on('orbit_mission_progress', (data: unknown) => {
+    const mission = data as OrbitMission
+    if (mission && mission.id) {
+      dispatch(updateOrbitMission(mission))
+    }
+  })
+
+  wsClient.on('ortho_mission_progress', (data: unknown) => {
+    const mission = data as OrthoMission
+    if (mission && mission.id) {
+      dispatch(updateOrthoMission(mission))
+    }
+  })
+
+  wsClient.on('tts_task_progress', (data: unknown) => {
+    const task = data as TextToSpeechTask
+    if (task && task.id) {
+      dispatch(updateTTSTask(task))
     }
   })
 

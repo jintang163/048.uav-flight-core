@@ -81,7 +81,11 @@ func (s *PayloadService) ListPayloadsByUAV(uavID uint64) ([]models.PayloadDevice
 	return s.payloadRepo.ListPayloadsByUAV(uavID)
 }
 
-func (s *PayloadService) UpdatePayload(id uint64, payload *models.PayloadDevice) (*models.PayloadDevice, error) {
+func (s *PayloadService) UpdatePayload(payload *models.PayloadDevice) error {
+	return s.payloadRepo.UpdatePayload(payload)
+}
+
+func (s *PayloadService) UpdatePayloadByID(id uint64, payload *models.PayloadDevice) (*models.PayloadDevice, error) {
 	existing, err := s.payloadRepo.FindPayloadByID(id)
 	if err != nil {
 		return nil, errors.New("payload not found")
@@ -108,6 +112,78 @@ func (s *PayloadService) UpdatePayload(id uint64, payload *models.PayloadDevice)
 	}
 
 	return s.payloadRepo.FindPayloadByID(id)
+}
+
+func (s *PayloadService) UpdateCameraStatus(payloadID uint64, status *models.CameraStatus) error {
+	existing, err := s.payloadRepo.GetCameraStatus(payloadID)
+	if err != nil || existing == nil {
+		status.PayloadID = payloadID
+		return s.payloadRepo.UpsertCameraStatus(status)
+	}
+	status.ID = existing.ID
+	status.PayloadID = payloadID
+	return s.payloadRepo.UpsertCameraStatus(status)
+}
+
+func (s *PayloadService) UpdateSprayerStatus(payloadID uint64, status *models.SprayerStatus) error {
+	existing, err := s.payloadRepo.GetSprayerStatus(payloadID)
+	if err != nil || existing == nil {
+		status.PayloadID = payloadID
+		return s.payloadRepo.UpsertSprayerStatus(status)
+	}
+	status.ID = existing.ID
+	status.PayloadID = payloadID
+	return s.payloadRepo.UpsertSprayerStatus(status)
+}
+
+func (s *PayloadService) IncrementPhotoCount(payloadID uint64) error {
+	status, err := s.payloadRepo.GetCameraStatus(payloadID)
+	if err != nil || status == nil {
+		return err
+	}
+	status.PhotoCount++
+	now := time.Now()
+	status.LastCaptureAt = &now
+	return s.payloadRepo.UpsertCameraStatus(status)
+}
+
+func (s *PayloadService) UpdateSprayerFlowRate(payloadID uint64, flowRate float64) error {
+	status, err := s.payloadRepo.GetSprayerStatus(payloadID)
+	if err != nil || status == nil {
+		return nil
+	}
+	status.FlowRate = flowRate
+	status.TargetFlowRate = flowRate
+	status.IsSpraying = flowRate > 0
+	return s.payloadRepo.UpsertSprayerStatus(status)
+}
+
+func (s *PayloadService) UpdateSprayerPressure(payloadID uint64, pressure float64) error {
+	status, err := s.payloadRepo.GetSprayerStatus(payloadID)
+	if err != nil || status == nil {
+		return nil
+	}
+	status.Pressure = pressure
+	return s.payloadRepo.UpsertSprayerStatus(status)
+}
+
+func (s *PayloadService) UpdateCameraLensTemp(payloadID uint64, temp float64) error {
+	status, err := s.payloadRepo.GetCameraStatus(payloadID)
+	if err != nil || status == nil {
+		return nil
+	}
+	status.LensTemperature = temp
+	status.LensTemperatureC = temp
+	return s.payloadRepo.UpsertCameraStatus(status)
+}
+
+func (s *PayloadService) UpdateCameraZoom(payloadID uint64, zoom float64) error {
+	status, err := s.payloadRepo.GetCameraStatus(payloadID)
+	if err != nil || status == nil {
+		return nil
+	}
+	status.ZoomLevel = zoom
+	return s.payloadRepo.UpsertCameraStatus(status)
 }
 
 func (s *PayloadService) UpdatePayloadStatus(id uint64, status models.PayloadStatus) error {

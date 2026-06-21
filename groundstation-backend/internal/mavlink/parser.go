@@ -26,6 +26,14 @@ const (
 	MISSION_ITEM     = 39
 	MISSION_CURRENT  = 42
 	MISSION_ITEM_REACHED = 46
+	CAMERA_STATUS    = 179
+	CAMERA_FEEDBACK  = 180
+	CAMERA_SETTINGS  = 178
+	VIDEO_STREAM_INFORMATION = 269
+	NAMED_VALUE_FLOAT = 251
+	NAMED_VALUE_INT   = 252
+	PAYLOAD_STATUS    = 380
+	PAYLOAD_TELEMETRY = 381
 )
 
 const (
@@ -265,4 +273,160 @@ func GetFlightModeName(code uint32) string {
 		return name
 	}
 	return "UNKNOWN"
+}
+
+type CameraStatusData struct {
+	TimeUsec        uint64
+	TargetSystem    uint8
+	TargetComponent uint8
+	ImgStatus       uint8
+	VideoTimeSec    uint32
+	VideoOn         uint8
+	PhotoInterval   uint32
+	StorageFreeKB   uint32
+	StorageTotalKB  uint32
+	BatteryPct      uint8
+	LensTemperature float32
+	SensorTemp      float32
+	ZoomLevel       float32
+	FocusLevel      float32
+	ISO             uint16
+	ShutterSpeedMs  uint32
+	Resolution      uint8
+	FrameRate       uint8
+	AccentX         int16
+	AccentY         int16
+}
+
+func ParseCameraStatus(payload []byte) (*CameraStatusData, error) {
+	if len(payload) < 48 {
+		return nil, errors.New("payload too short for camera status")
+	}
+	return &CameraStatusData{
+		TimeUsec:        binary.LittleEndian.Uint64(payload[0:8]),
+		TargetSystem:    uint8(payload[8]),
+		TargetComponent: uint8(payload[9]),
+		ImgStatus:       uint8(payload[10]),
+		VideoTimeSec:    binary.LittleEndian.Uint32(payload[12:16]),
+		VideoOn:         uint8(payload[16]),
+		PhotoInterval:   binary.LittleEndian.Uint32(payload[17:21]),
+		StorageFreeKB:   binary.LittleEndian.Uint32(payload[21:25]),
+		StorageTotalKB:  binary.LittleEndian.Uint32(payload[25:29]),
+		BatteryPct:      uint8(payload[29]),
+		LensTemperature: math.Float32frombits(binary.LittleEndian.Uint32(payload[30:34])),
+		SensorTemp:      math.Float32frombits(binary.LittleEndian.Uint32(payload[34:38])),
+		ZoomLevel:       math.Float32frombits(binary.LittleEndian.Uint32(payload[38:42])),
+		FocusLevel:      math.Float32frombits(binary.LittleEndian.Uint32(payload[42:46])),
+		ISO:             binary.LittleEndian.Uint16(payload[46:48]),
+	}, nil
+}
+
+type CameraFeedbackData struct {
+	ImgIdx         uint64
+	TimeUsec       uint64
+	TargetSystem   uint8
+	TargetComponent uint8
+	Flags          uint8
+	Result         uint8
+	Latitude       int32
+	Longitude      int32
+	Altitude       float32
+	RelativeAlt    float32
+	Elevation      float32
+	Heading        float32
+	Roll           float32
+	Pitch          float32
+	CameraID       uint8
+	CaptureResult  uint8
+	ImageSeq       uint16
+	Distance       float32
+	SizeKB         uint32
+}
+
+func ParseCameraFeedback(payload []byte) (*CameraFeedbackData, error) {
+	if len(payload) < 60 {
+		return nil, errors.New("payload too short for camera feedback")
+	}
+	return &CameraFeedbackData{
+		ImgIdx:         binary.LittleEndian.Uint64(payload[0:8]),
+		TimeUsec:       binary.LittleEndian.Uint64(payload[8:16]),
+		TargetSystem:   uint8(payload[16]),
+		TargetComponent: uint8(payload[17]),
+		Flags:          uint8(payload[18]),
+		Result:         uint8(payload[19]),
+		Latitude:       int32(binary.LittleEndian.Uint32(payload[20:24])),
+		Longitude:      int32(binary.LittleEndian.Uint32(payload[24:28])),
+		Altitude:       math.Float32frombits(binary.LittleEndian.Uint32(payload[28:32])),
+		RelativeAlt:    math.Float32frombits(binary.LittleEndian.Uint32(payload[32:36])),
+		Elevation:      math.Float32frombits(binary.LittleEndian.Uint32(payload[36:40])),
+		Heading:        math.Float32frombits(binary.LittleEndian.Uint32(payload[40:44])),
+		Roll:           math.Float32frombits(binary.LittleEndian.Uint32(payload[44:48])),
+		Pitch:          math.Float32frombits(binary.LittleEndian.Uint32(payload[48:52])),
+		CameraID:       uint8(payload[52]),
+		CaptureResult:  uint8(payload[53]),
+		ImageSeq:       binary.LittleEndian.Uint16(payload[54:56]),
+		Distance:       math.Float32frombits(binary.LittleEndian.Uint32(payload[56:60])),
+	}, nil
+}
+
+type PayloadStatusData struct {
+	TimeUsec       uint64
+	PayloadType    uint8
+	PayloadID      uint8
+	Status         uint8
+	SubStatus      uint8
+	SubComponent   uint8
+	BatteryPct     uint8
+	Temperature    float32
+	Pressure       float32
+	FlowRate       float32
+	RemainingQty   float32
+	TotalCapacity  float32
+	OperationalHrs uint32
+	FirmwareVersion uint32
+}
+
+func ParsePayloadStatus(payload []byte) (*PayloadStatusData, error) {
+	if len(payload) < 32 {
+		return nil, errors.New("payload too short")
+	}
+	return &PayloadStatusData{
+		TimeUsec:       binary.LittleEndian.Uint64(payload[0:8]),
+		PayloadType:    uint8(payload[8]),
+		PayloadID:      uint8(payload[9]),
+		Status:         uint8(payload[10]),
+		SubStatus:      uint8(payload[11]),
+		SubComponent:   uint8(payload[12]),
+		BatteryPct:     uint8(payload[13]),
+		Temperature:    math.Float32frombits(binary.LittleEndian.Uint32(payload[14:18])),
+		Pressure:       math.Float32frombits(binary.LittleEndian.Uint32(payload[18:22])),
+		FlowRate:       math.Float32frombits(binary.LittleEndian.Uint32(payload[22:26])),
+		RemainingQty:   math.Float32frombits(binary.LittleEndian.Uint32(payload[26:30])),
+		TotalCapacity:  math.Float32frombits(binary.LittleEndian.Uint32(payload[30:34])),
+	}, nil
+}
+
+type NamedValueFloatData struct {
+	TimeBootMs uint32
+	Value      float32
+	Name       string
+}
+
+func ParseNamedValueFloat(payload []byte) (*NamedValueFloatData, error) {
+	if len(payload) < 18 {
+		return nil, errors.New("payload too short")
+	}
+	nameBytes := payload[8:18]
+	name := string(nameBytes[:])
+	for i, b := range nameBytes {
+		if b == 0 {
+			name = string(nameBytes[:i])
+			break
+		}
+	}
+	return &NamedValueFloatData{
+		TimeBootMs: binary.LittleEndian.Uint32(payload[0:4]),
+		Value:      math.Float32frombits(binary.LittleEndian.Uint32(payload[4:8])),
+		Name:       name,
+	}, nil
 }

@@ -8,6 +8,7 @@ import alertReducer from './slices/alert'
 import geofenceReducer from './slices/geofence'
 import formationReducer from './slices/formation'
 import trackingReducer from './slices/tracking'
+import payloadReducer from './slices/payload'
 
 export const store = configureStore({
   reducer: {
@@ -18,7 +19,8 @@ export const store = configureStore({
     alert: alertReducer,
     geofence: geofenceReducer,
     formation: formationReducer,
-    tracking: trackingReducer
+    tracking: trackingReducer,
+    payload: payloadReducer
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

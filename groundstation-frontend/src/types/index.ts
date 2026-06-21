@@ -5,6 +5,7 @@ export * from './geofence'
 export * from './alert'
 export * from './formation'
 export * from './tracking'
+export * from './payload'
 
 export interface ApiResponse<T = unknown> {
   code: number

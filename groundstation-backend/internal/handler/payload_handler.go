@@ -145,7 +145,7 @@ func UpdatePayload(c *gin.Context) {
 		payload.Status = models.PayloadStatus(req.Status)
 	}
 
-	result, err := payloadService.UpdatePayload(id, payload)
+	result, err := payloadService.UpdatePayloadByID(id, payload)
 	if err != nil {
 		utils.ErrorResponse(c, http.StatusInternalServerError, 500001, err.Error(), nil)
 		return

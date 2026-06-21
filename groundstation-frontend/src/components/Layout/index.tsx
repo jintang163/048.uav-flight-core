@@ -32,7 +32,8 @@ import {
   BulbOutlined,
   SunOutlined,
   TeamOutlined,
-  ScanOutlined
+  ScanOutlined,
+  CameraOutlined
 } from '@ant-design/icons'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '@/store'
@@ -277,6 +278,11 @@ const MainLayout: React.FC = () => {
       label: 'AI视觉追踪'
     },
     {
+      key: 'payload-missions',
+      icon: <CameraOutlined />,
+      label: '载荷任务管理'
+    },
+    {
       key: 'alert-center',
       icon: <BellOutlined />,
       label: '告警中心'
@@ -340,6 +346,7 @@ const MainLayout: React.FC = () => {
     'geofence': '电子围栏',
     'formation': '编队控制',
     'ai-vision': 'AI视觉追踪',
+    'payload-missions': '载荷任务管理',
     'alert-center': '告警中心',
     'firmware': '固件管理',
     'settings': '系统设置'

@@ -269,6 +269,24 @@ func (m *CommandManager) processMAVLinkMessage(msg *MAVLinkMessage) {
 
 	case COMMAND_ACK:
 		m.processCommandAck(uavID, msg.Payload)
+
+	case CAMERA_STATUS:
+		m.processCameraStatus(uavID, msg.Payload)
+
+	case CAMERA_FEEDBACK:
+		m.processCameraFeedback(uavID, msg.Payload)
+
+	case CAMERA_SETTINGS:
+		m.processCameraSettings(uavID, msg.Payload)
+
+	case PAYLOAD_STATUS:
+		m.processPayloadStatus(uavID, msg.Payload)
+
+	case NAMED_VALUE_FLOAT:
+		m.processNamedValueFloat(uavID, msg.Payload)
+
+	case VIDEO_STREAM_INFORMATION:
+		m.processVideoStreamInfo(uavID, msg.Payload)
 	}
 
 	_ = nsq.Publish(nsq.TopicMAVLinkMessage, map[string]interface{}{
@@ -277,6 +295,235 @@ func (m *CommandManager) processMAVLinkMessage(msg *MAVLinkMessage) {
 		"length":     msg.Length,
 		"timestamp":  time.Now().UnixNano() / 1e6,
 	})
+}
+
+func (m *CommandManager) processCameraStatus(uavID uint64, payload []byte) {
+	camStatus, err := ParseCameraStatus(payload)
+	if err != nil {
+		return
+	}
+
+	payloadService := service.NewPayloadService()
+
+	payloadID := uint64(camStatus.TargetComponent)
+	if payloadID == 0 {
+		payloadID = uavID * 10 + 1
+	}
+
+	storageFreeMB := float64(camStatus.StorageFreeKB) / 1024
+	storageTotalMB := float64(camStatus.StorageTotalKB) / 1024
+	lensTemp := float64(camStatus.LensTemperature)
+
+	mode := models.CameraModeIdle
+	imgStatus := camStatus.ImgStatus
+	if imgStatus&0x02 != 0 {
+		mode = models.CameraModeVideo
+	} else if imgStatus&0x01 != 0 {
+		mode = models.CameraModePhoto
+	}
+
+	recordingTime := 0
+	if camStatus.VideoOn > 0 {
+		recordingTime = int(camStatus.VideoTimeSec)
+	}
+
+	cameraStatus := &models.CameraStatus{
+		PayloadID:           payloadID,
+		Mode:                mode,
+		Recording:           camStatus.VideoOn > 0,
+		RecordingTimeSec:    recordingTime,
+		PhotoCount:          int(camStatus.ImgStatus >> 4),
+		StorageFreeMB:       storageFreeMB,
+		StorageTotalMB:      storageTotalMB,
+		StorageUsedPercent:  0,
+		LensTemperatureC:    lensTemp,
+		SensorTemperatureC:  float64(camStatus.SensorTemp),
+		ZoomLevel:           float64(camStatus.ZoomLevel),
+		FocusLevel:          float64(camStatus.FocusLevel),
+		ISO:                 int(camStatus.ISO),
+		ShutterSpeedMs:      float64(camStatus.ShutterSpeedMs),
+		BatteryPercent:      int(camStatus.BatteryPct),
+	}
+	if cameraStatus.StorageTotalMB > 0 {
+		cameraStatus.StorageUsedPercent = int((cameraStatus.StorageTotalMB - cameraStatus.StorageFreeMB) / cameraStatus.StorageTotalMB * 100)
+	}
+
+	_ = payloadService.UpdateCameraStatus(payloadID, cameraStatus)
+	websocket.BroadcastCameraStatus(uavID, payloadID, cameraStatus)
+
+	device, _ := payloadService.GetPayload(payloadID)
+	if device != nil {
+		websocket.BroadcastPayloadStatus(uavID, payloadID, device)
+	}
+}
+
+func (m *CommandManager) processCameraFeedback(uavID uint64, payload []byte) {
+	fb, err := ParseCameraFeedback(payload)
+	if err != nil {
+		return
+	}
+
+	payloadID := uint64(fb.CameraID)
+	if payloadID == 0 {
+		payloadID = uavID * 10 + 1
+	}
+
+	payloadService := service.NewPayloadService()
+	_ = payloadService.IncrementPhotoCount(payloadID)
+
+	result := "success"
+	if fb.CaptureResult != 0 {
+		result = "failed"
+	}
+	websocket.BroadcastCameraFeedback(uavID, payloadID, result, int(fb.ImageSeq), int(fb.SizeKB))
+}
+
+func (m *CommandManager) processCameraSettings(uavID uint64, payload []byte) {
+	if len(payload) < 40 {
+		return
+	}
+
+	payloadID := uint64(payload[8])
+	if payloadID == 0 {
+		payloadID = uavID * 10 + 1
+	}
+
+	mode := models.CameraModeIdle
+	modeByte := uint8(payload[10])
+	if modeByte == 1 {
+		mode = models.CameraModePhoto
+	} else if modeByte == 2 {
+		mode = models.CameraModeVideo
+	}
+
+	payloadService := service.NewPayloadService()
+	status, _ := payloadService.GetCameraStatus(payloadID)
+	if status == nil {
+		status = &models.CameraStatus{PayloadID: payloadID}
+	}
+	status.Mode = mode
+	_ = payloadService.UpdateCameraStatus(payloadID, status)
+	websocket.BroadcastCameraStatus(uavID, payloadID, status)
+}
+
+func (m *CommandManager) processPayloadStatus(uavID uint64, payload []byte) {
+	ps, err := ParsePayloadStatus(payload)
+	if err != nil {
+		return
+	}
+
+	payloadService := service.NewPayloadService()
+	payloadID := uint64(ps.PayloadID)
+	if payloadID == 0 {
+		payloadID = uavID*10 + uint64(ps.PayloadType+1)
+	}
+
+	statusCode := "offline"
+	switch ps.Status {
+	case 1:
+		statusCode = "online"
+	case 2:
+		statusCode = "active"
+	case 3:
+		statusCode = "error"
+	}
+
+	payloadType := ""
+	switch ps.PayloadType {
+	case 1:
+		payloadType = string(models.PayloadTypeCamera)
+	case 2:
+		payloadType = string(models.PayloadTypeThermalCamera)
+	case 3:
+		payloadType = string(models.PayloadTypeSpeaker)
+	case 4:
+		payloadType = string(models.PayloadTypeSprayer)
+	}
+
+	device, _ := payloadService.GetPayload(payloadID)
+	if device == nil {
+		device = &models.PayloadDevice{
+			ID:          payloadID,
+			UAVID:       uavID,
+			Name:        fmt.Sprintf("Payload-%d", payloadID),
+			Type:        models.PayloadType(payloadType),
+			Status:      models.PayloadStatus(statusCode),
+			Temperature: float64(ps.Temperature),
+			Battery:     int(ps.BatteryPct),
+		}
+		_ = payloadService.CreatePayload(device)
+	} else {
+		device.Status = models.PayloadStatus(statusCode)
+		device.Temperature = float64(ps.Temperature)
+		device.Battery = int(ps.BatteryPct)
+		_ = payloadService.UpdatePayload(device)
+	}
+
+	if payloadType == string(models.PayloadTypeSprayer) {
+		sprayerStatus := &models.SprayerStatus{
+			PayloadID:       payloadID,
+			FlowRate:        float64(ps.FlowRate),
+			RemainingVolume: float64(ps.RemainingQty),
+			TotalCapacity:   float64(ps.TotalCapacity),
+			Pressure:        float64(ps.Pressure),
+			Spraying:        ps.SubStatus == 1,
+		}
+		if sprayerStatus.TotalCapacity > 0 {
+			sprayerStatus.RemainingPercent = int(sprayerStatus.RemainingVolume / sprayerStatus.TotalCapacity * 100)
+		}
+		_ = payloadService.UpdateSprayerStatus(payloadID, sprayerStatus)
+		websocket.BroadcastSprayerStatus(uavID, payloadID, sprayerStatus)
+	}
+
+	websocket.BroadcastPayloadStatus(uavID, payloadID, device)
+}
+
+func (m *CommandManager) processNamedValueFloat(uavID uint64, payload []byte) {
+	nv, err := ParseNamedValueFloat(payload)
+	if err != nil {
+		return
+	}
+
+	payloadService := service.NewPayloadService()
+
+	switch nv.Name {
+	case "spray_flow":
+		_ = payloadService.UpdateSprayerFlowRate(uavID*10+4, float64(nv.Value))
+	case "spray_pres":
+		_ = payloadService.UpdateSprayerPressure(uavID*10+4, float64(nv.Value))
+	case "lens_temp":
+		_ = payloadService.UpdateCameraLensTemp(uavID*10+1, float64(nv.Value))
+	case "cam_zoom":
+		_ = payloadService.UpdateCameraZoom(uavID*10+1, float64(nv.Value))
+	}
+
+	_ = nsq.Publish(nsq.TopicTelemetryData, map[string]interface{}{
+		"uav_id":      uavID,
+		"name":        nv.Name,
+		"value":       nv.Value,
+		"time_boot_ms": nv.TimeBootMs,
+		"timestamp":   time.Now().UnixNano() / 1e6,
+	})
+}
+
+func (m *CommandManager) processVideoStreamInfo(uavID uint64, payload []byte) {
+	if len(payload) < 20 {
+		return
+	}
+
+	frameRate := int(payload[17])
+	resolutionH := int(payload[18])
+	resolutionV := int(payload[19])
+
+	payloadID := uavID*10 + 1
+	payloadService := service.NewPayloadService()
+	status, _ := payloadService.GetCameraStatus(payloadID)
+	if status != nil {
+		status.FrameRate = frameRate
+		status.Resolution = fmt.Sprintf("%dx%d", resolutionH, resolutionV)
+		_ = payloadService.UpdateCameraStatus(payloadID, status)
+		websocket.BroadcastCameraStatus(uavID, payloadID, status)
+	}
 }
 
 func (m *CommandManager) processSysStatus(uavID uint64, payload []byte) {

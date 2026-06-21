@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"math"
@@ -10,6 +11,7 @@ import (
 	"groundstation-backend/internal/models"
 	"groundstation-backend/internal/repository"
 	"groundstation-backend/internal/websocket"
+	"groundstation-backend/pkg/tts"
 	"groundstation-backend/pkg/utils"
 
 	"github.com/google/uuid"
@@ -683,34 +685,75 @@ func (s *PayloadMissionService) processTTSTask(taskID uint64) {
 		return
 	}
 
+	websocket.BroadcastTTSTaskProgress(taskID, "processing", "", "")
 	_ = s.missionRepo.UpdateTTSStatus(taskID, "processing", "", "", 0)
+
+	ttsService := tts.GetTTSService()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	audioData, audioPath, audioURL, err := ttsService.Synthesize(
+		ctx,
+		task.Text,
+		task.Voice,
+		task.Speed,
+		task.Pitch,
+		task.Volume,
+	)
+	if err != nil {
+		websocket.BroadcastTTSTaskProgress(taskID, "failed", "", err.Error())
+		_ = s.missionRepo.UpdateTTSStatus(taskID, "failed", err.Error(), "", 0)
+		return
+	}
+
+	durationSec := 0
+	if len(audioData) > 44 {
+		sampleRate := uint32(audioData[24]) | uint32(audioData[25])<<8 | uint32(audioData[26])<<16 | uint32(audioData[27])<<24
+		dataSize := uint32(audioData[40]) | uint32(audioData[41])<<8 | uint32(audioData[42])<<16 | uint32(audioData[43])<<24
+		byteRate := sampleRate * 2
+		if byteRate > 0 {
+			durationSec = int(dataSize / byteRate)
+		}
+	}
+	if durationSec <= 0 {
+		durationSec = len(task.Text) / 3
+		if durationSec < 1 {
+			durationSec = 1
+		}
+	}
+
+	fileSizeKB := int(len(audioData) / 1024)
 
 	audio := &models.SpeakerAudio{
 		PayloadID:      task.PayloadID,
-		Name:           "TTS_" + task.UUID,
+		Name:           "TTS_" + task.UUID[:8],
 		Type:           "tts",
+		Format:         "wav",
 		Content:        task.Text,
+		FilePath:       audioPath,
+		FileURL:        audioURL,
+		FileSizeKB:     fileSizeKB,
+		DurationSec:    durationSec,
 		IsTextToSpeech: true,
 		Voice:          task.Voice,
 		Speed:          task.Speed,
 		Pitch:          task.Pitch,
 		Volume:         task.Volume,
 		CreatedBy:      task.CreatedBy,
-		DurationSec:    len(task.Text) * 2,
 	}
 
 	createdAudio, err := s.payloadSvc.CreateSpeakerAudio(audio, task.CreatedBy)
 	if err != nil {
+		websocket.BroadcastTTSTaskProgress(taskID, "failed", "", err.Error())
 		_ = s.missionRepo.UpdateTTSStatus(taskID, "failed", err.Error(), "", 0)
 		return
 	}
 
-	audioURL := "/api/v1/payloads/speaker/audios/" + createdAudio.UUID
-	duration := len(task.Text) * 2
-
-	_ = s.missionRepo.UpdateTTSStatus(taskID, "completed", "", audioURL, duration)
+	_ = s.missionRepo.UpdateTTSStatus(taskID, "completed", "", audioURL, durationSec)
+	websocket.BroadcastTTSTaskProgress(taskID, "completed", audioURL, "")
 
 	if task.PayloadID > 0 {
+		time.Sleep(200 * time.Millisecond)
 		_ = s.payloadSvc.PlaySpeakerAudio(task.UAVID, task.PayloadID, createdAudio.ID)
 	}
 }

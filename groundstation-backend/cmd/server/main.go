@@ -17,6 +17,7 @@ import (
 	"groundstation-backend/internal/nsq"
 	"groundstation-backend/internal/service"
 	"groundstation-backend/internal/websocket"
+	"groundstation-backend/pkg/tts"
 	"groundstation-backend/pkg/utils"
 
 	"github.com/gin-gonic/gin"
@@ -96,6 +97,17 @@ func main() {
 
 	metricsService := service.NewMetricsService()
 	metricsService.StartCollector(30 * time.Second)
+
+	ttsConfig := tts.TTSServiceConfig{
+		AudioDir:     "./data/tts_audio",
+		AudioURLBase: "/api/v1/static/tts",
+	}
+	if len(config.AppConfig.ExternalServices) > 0 {
+		if url, ok := config.AppConfig.ExternalServices["edge_tts_url"]; ok {
+			ttsConfig.EdgeTTSURL = url
+		}
+	}
+	_ = tts.NewTTSService(ttsConfig)
 
 	gin.SetMode(gin.ReleaseMode)
 	if config.AppConfig.Server.Mode == "debug" {
@@ -355,6 +367,8 @@ func main() {
 			})
 		}
 	}
+
+	api.Static("/static/tts", "./data/tts_audio")
 
 	ws := r.Group("/ws", middleware.JWTAuth())
 	{
