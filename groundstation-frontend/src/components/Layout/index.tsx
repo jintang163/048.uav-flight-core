@@ -47,6 +47,7 @@ import { useUAV } from '@/hooks/useUAV'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { formatDateTime } from '@/utils'
 import MotorFailureAlertModal from '@/components/MotorFailureAlert'
+import VoiceControlPanel from '@/components/VoiceControlPanel'
 
 const { Header, Sider, Content } = Layout
 
@@ -237,6 +238,7 @@ const MainLayout: React.FC = () => {
   
   const [collapsed, setCollapsed] = useState(false)
   const [notificationVisible, setNotificationVisible] = useState(false)
+  const [voiceDrawerVisible, setVoiceDrawerVisible] = useState(false)
   const [selectedKey, setSelectedKey] = useState<string>('')
 
   useEffect(() => {
@@ -435,6 +437,10 @@ const MainLayout: React.FC = () => {
                 onClick={toggleTheme}
                 style={{ color: 'rgba(255,255,255,0.7)' }}
               />
+            </Tooltip>
+
+            <Tooltip title="语音控制">
+              <VoiceControlPanel compact />
             </Tooltip>
 
             <Tooltip title="告警通知">

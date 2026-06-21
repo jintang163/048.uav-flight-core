@@ -17,6 +17,7 @@ import FlightMap from '@/components/FlightMap'
 import TelemetryPanel from '@/components/TelemetryPanel'
 import AlertPanel from '@/components/AlertPanel'
 import ControlPanel from '@/components/ControlPanel'
+import VoiceControlPanel from '@/components/VoiceControlPanel'
 import BatteryIndicator from '@/components/BatteryIndicator'
 import RCChannels from '@/components/RCChannels'
 import MotorStatusPanel from '@/components/MotorStatusPanel'
@@ -360,6 +361,9 @@ const Dashboard: React.FC = () => {
           </PanelCard>
           <PanelCard style={{ height: 320 }}>
             <ControlPanel showTitle={false} />
+          </PanelCard>
+          <PanelCard style={{ height: 200, overflow: 'auto' }}>
+            <VoiceControlPanel />
           </PanelCard>
         </LeftPanel>
 
