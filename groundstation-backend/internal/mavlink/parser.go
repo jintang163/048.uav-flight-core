@@ -50,6 +50,13 @@ const (
 	CMD_PREFLIGHT_REBOOT_SHUTDOWN         = 246
 	CMD_PREFLIGHT_CALIBRATION             = 241
 	CMD_DO_DIGICAM_CONTROL                = 203
+	CMD_DO_DIGICAM_CONFIGURE              = 202
+	CMD_DO_VIDEO_START                    = 2000
+	CMD_DO_VIDEO_STOP                     = 2001
+	CMD_DO_SPRAYER                        = 2002
+	CMD_DO_PLAY_TUNE                      = 4003
+	CMD_DO_LOITER_UNLIMITED               = 17
+	CMD_GET_FLIGHT_MODE_CODE              = 2003
 )
 
 type MAVLinkMessage struct {

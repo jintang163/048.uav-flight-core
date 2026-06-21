@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"groundstation-backend/internal/mavlink"
+	"groundstation-backend/internal/models"
 	"groundstation-backend/internal/nsq"
 	"groundstation-backend/internal/service"
 )
@@ -181,6 +182,188 @@ func ExecuteCommand(cmd *CommandRequest) (bool, error) {
 	case "camera_trigger":
 		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_DO_DIGICAM_CONTROL, 0, 1, 0, 0, 0, 0, 0)
 
+	case "camera_take_photo":
+		payloadID := parseParamUint64(cmd.Params, "payload_id")
+		if payloadID > 0 {
+			_ = service.NewPayloadService().TakePhoto(cmd.UAVID, payloadID)
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_DO_DIGICAM_CONTROL, 0, 1, 0, 0, 0, 0, 0)
+
+	case "camera_start_recording":
+		payloadID := parseParamUint64(cmd.Params, "payload_id")
+		if payloadID > 0 {
+			_ = service.NewPayloadService().StartVideoRecording(cmd.UAVID, payloadID)
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_DO_VIDEO_START, 0, 0, 0, 0, 0, 0, 0)
+
+	case "camera_stop_recording":
+		payloadID := parseParamUint64(cmd.Params, "payload_id")
+		if payloadID > 0 {
+			_ = service.NewPayloadService().StopVideoRecording(cmd.UAVID, payloadID)
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_DO_VIDEO_STOP, 0, 0, 0, 0, 0, 0, 0)
+
+	case "camera_set_zoom":
+		payloadID := parseParamUint64(cmd.Params, "payload_id")
+		zoom, _ := cmd.Params["zoom_level"].(float64)
+		if payloadID > 0 {
+			_ = service.NewPayloadService().SetCameraZoom(cmd.UAVID, payloadID, zoom)
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_DO_DIGICAM_CONFIGURE, 4, float32(zoom), 0, 0, 0, 0, 0)
+
+	case "camera_set_mode":
+		payloadID := parseParamUint64(cmd.Params, "payload_id")
+		mode, _ := cmd.Params["mode"].(string)
+		if payloadID > 0 && mode != "" {
+			_ = service.NewPayloadService().SetCameraMode(cmd.UAVID, payloadID, models.CameraMode(mode))
+		}
+		return true, nil
+
+	case "sprayer_start":
+		payloadID := parseParamUint64(cmd.Params, "payload_id")
+		flowRate, _ := cmd.Params["flow_rate"].(float64)
+		if flowRate <= 0 {
+			flowRate = 2.0
+		}
+		if payloadID > 0 {
+			_ = service.NewPayloadService().StartSpraying(cmd.UAVID, payloadID, flowRate)
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_DO_SPRAYER, 1, float32(flowRate), 0, 0, 0, 0, 0)
+
+	case "sprayer_stop":
+		payloadID := parseParamUint64(cmd.Params, "payload_id")
+		if payloadID > 0 {
+			_ = service.NewPayloadService().StopSpraying(cmd.UAVID, payloadID)
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_DO_SPRAYER, 0, 0, 0, 0, 0, 0, 0)
+
+	case "sprayer_set_flow":
+		payloadID := parseParamUint64(cmd.Params, "payload_id")
+		flowRate, _ := cmd.Params["flow_rate"].(float64)
+		if payloadID > 0 {
+			_ = service.NewPayloadService().SetSprayerFlowRate(cmd.UAVID, payloadID, flowRate)
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_DO_SPRAYER, 1, float32(flowRate), 0, 0, 0, 0, 0)
+
+	case "speaker_play_audio":
+		payloadID := parseParamUint64(cmd.Params, "payload_id")
+		audioID := parseParamUint64(cmd.Params, "audio_id")
+		if payloadID > 0 && audioID > 0 {
+			_ = service.NewPayloadService().PlaySpeakerAudio(cmd.UAVID, payloadID, audioID)
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_DO_PLAY_TUNE, float32(audioID), 0, 0, 0, 0, 0, 0)
+
+	case "speaker_stop":
+		payloadID := parseParamUint64(cmd.Params, "payload_id")
+		if payloadID > 0 {
+			_ = service.NewPayloadService().StopSpeaker(cmd.UAVID, payloadID)
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_DO_PLAY_TUNE, 0, 0, 0, 0, 0, 0, 0)
+
+	case "speaker_tts":
+		payloadID := parseParamUint64(cmd.Params, "payload_id")
+		text, _ := cmd.Params["text"].(string)
+		if payloadID > 0 && text != "" {
+			ttsTask := &models.TextToSpeechTask{
+				UAVID:     cmd.UAVID,
+				PayloadID: payloadID,
+				Text:      text,
+			}
+			if voice, ok := cmd.Params["voice"].(string); ok {
+				ttsTask.Voice = voice
+			}
+			if speed, ok := cmd.Params["speed"].(float64); ok {
+				ttsTask.Speed = speed
+			}
+			if pitch, ok := cmd.Params["pitch"].(float64); ok {
+				ttsTask.Pitch = pitch
+			}
+			if volume, ok := cmd.Params["volume"].(float64); ok {
+				ttsTask.Volume = int(volume)
+			}
+			_, _ = service.NewPayloadMissionService().CreateTTSTask(ttsTask, 0)
+		}
+		return true, nil
+
+	case "orbit_start":
+		missionID := parseParamUint64(cmd.Params, "mission_id")
+		if missionID > 0 {
+			_, err := service.NewPayloadMissionService().StartOrbitMission(missionID)
+			return err == nil, err
+		}
+		lat, _ := cmd.Params["lat"].(float64)
+		lng, _ := cmd.Params["lng"].(float64)
+		alt, _ := cmd.Params["alt"].(float64)
+		radius, _ := cmd.Params["radius"].(float64)
+		loops, _ := cmd.Params["loops"].(float64)
+		if radius <= 0 {
+			radius = 30
+		}
+		if alt <= 0 {
+			alt = 50
+		}
+		if loops <= 0 {
+			loops = 1
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_NAV_LOITER_TURNS,
+			float32(loops), float32(radius), 0, 0, float32(lat), float32(lng), float32(alt))
+
+	case "orbit_pause":
+		missionID := parseParamUint64(cmd.Params, "mission_id")
+		if missionID > 0 {
+			_, err := service.NewPayloadMissionService().PauseOrbitMission(missionID)
+			return err == nil, err
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_DO_LOITER_UNLIMITED, 0, 0, 0, 0, 0, 0, 0)
+
+	case "orbit_resume":
+		missionID := parseParamUint64(cmd.Params, "mission_id")
+		if missionID > 0 {
+			_, err := service.NewPayloadMissionService().ResumeOrbitMission(missionID)
+			return err == nil, err
+		}
+		return true, nil
+
+	case "orbit_abort":
+		missionID := parseParamUint64(cmd.Params, "mission_id")
+		if missionID > 0 {
+			_, err := service.NewPayloadMissionService().AbortOrbitMission(missionID)
+			return err == nil, err
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_NAV_RETURN_TO_LAUNCH, 0, 0, 0, 0, 0, 0, 0)
+
+	case "ortho_start":
+		missionID := parseParamUint64(cmd.Params, "mission_id")
+		if missionID > 0 {
+			_, err := service.NewPayloadMissionService().StartOrthoMission(missionID)
+			return err == nil, err
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_MISSION_START, 0, 0, 0, 0, 0, 0, 0)
+
+	case "ortho_pause":
+		missionID := parseParamUint64(cmd.Params, "mission_id")
+		if missionID > 0 {
+			_, err := service.NewPayloadMissionService().PauseOrthoMission(missionID)
+			return err == nil, err
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_DO_LOITER_UNLIMITED, 0, 0, 0, 0, 0, 0, 0)
+
+	case "ortho_resume":
+		missionID := parseParamUint64(cmd.Params, "mission_id")
+		if missionID > 0 {
+			_, err := service.NewPayloadMissionService().ResumeOrthoMission(missionID)
+			return err == nil, err
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_MISSION_START, 0, 0, 0, 0, 0, 0, 0)
+
+	case "ortho_abort":
+		missionID := parseParamUint64(cmd.Params, "mission_id")
+		if missionID > 0 {
+			_, err := service.NewPayloadMissionService().AbortOrthoMission(missionID)
+			return err == nil, err
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_NAV_RETURN_TO_LAUNCH, 0, 0, 0, 0, 0, 0, 0)
+
 	case "do_action":
 		return true, nil
 
@@ -222,6 +405,28 @@ func parseMissionID(params map[string]interface{}) uint64 {
 	}
 	if v, ok := params["mission_id"]; ok {
 		return parseID(v)
+	}
+	return 0
+}
+
+func parseParamUint64(params map[string]interface{}, key string) uint64 {
+	if params == nil {
+		return 0
+	}
+	if v, ok := params[key]; ok {
+		switch val := v.(type) {
+		case float64:
+			return uint64(val)
+		case string:
+			n, _ := strconv.ParseUint(val, 10, 64)
+			return n
+		case uint64:
+			return val
+		case int64:
+			return uint64(val)
+		case int:
+			return uint64(val)
+		}
 	}
 	return 0
 }

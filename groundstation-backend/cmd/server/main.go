@@ -64,6 +64,15 @@ func main() {
 		&models.FormationCollisionWarning{},
 		&models.DetectionTarget{},
 		&models.TrackingTask{},
+		&models.PayloadDevice{},
+		&models.CameraStatus{},
+		&models.SpeakerAudio{},
+		&models.SprayerStatus{},
+		&models.PayloadTelemetry{},
+		&models.OrbitMission{},
+		&models.OrthoMission{},
+		&models.OrthoWaypoint{},
+		&models.TextToSpeechTask{},
 	); err != nil {
 		fmt.Printf("Failed to migrate database: %v\n", err)
 		os.Exit(1)
@@ -267,6 +276,70 @@ func main() {
 			tracking.GET("/uav/:uav_id/active", handler.GetActiveTracking)
 			tracking.GET("/uav/:uav_id/detections", handler.ListDetections)
 			tracking.POST("/uav/:uav_id/detect", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.DetectImage)
+		}
+
+		payloads := api.Group("/payloads", middleware.JWTAuth())
+		{
+			payloads.POST("", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.CreatePayload)
+			payloads.GET("", handler.ListPayloads)
+			payloads.GET("/uav/:uav_id", handler.ListUAVPayloads)
+			payloads.GET("/:id", handler.GetPayload)
+			payloads.PUT("/:id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UpdatePayload)
+			payloads.DELETE("/:id", middleware.RoleAuth(models.UserRoleAdmin), handler.DeletePayload)
+
+			payloads.GET("/:id/camera/status", handler.GetCameraStatus)
+			payloads.POST("/:id/camera/photo", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.TakePhoto)
+			payloads.POST("/:id/camera/recording/start", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StartVideoRecording)
+			payloads.POST("/:id/camera/recording/stop", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StopVideoRecording)
+			payloads.POST("/:id/camera/mode", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SetCameraMode)
+			payloads.POST("/:id/camera/zoom", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SetCameraZoom)
+			payloads.POST("/:id/camera/settings", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SetCameraSettings)
+
+			payloads.GET("/:id/sprayer/status", handler.GetSprayerStatus)
+			payloads.POST("/:id/sprayer/flow", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SetSprayerFlowRate)
+			payloads.POST("/:id/sprayer/start", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StartSpraying)
+			payloads.POST("/:id/sprayer/stop", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StopSpraying)
+
+			payloads.POST("/speaker/audios", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.CreateSpeakerAudio)
+			payloads.GET("/speaker/audios", handler.ListSpeakerAudios)
+			payloads.GET("/speaker/audios/:id", handler.GetSpeakerAudio)
+			payloads.DELETE("/speaker/audios/:id", middleware.RoleAuth(models.UserRoleAdmin), handler.DeleteSpeakerAudio)
+			payloads.POST("/:id/speaker/play/:audio_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.PlaySpeakerAudio)
+			payloads.POST("/:id/speaker/stop", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StopSpeaker)
+		}
+
+		payloadMissions := api.Group("/payload-missions", middleware.JWTAuth())
+		{
+			orbit := payloadMissions.Group("/orbit")
+			{
+				orbit.POST("", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.CreateOrbitMission)
+				orbit.GET("", handler.ListOrbitMissions)
+				orbit.GET("/:id", handler.GetOrbitMission)
+				orbit.POST("/:id/start", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StartOrbitMission)
+				orbit.POST("/:id/pause", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.PauseOrbitMission)
+				orbit.POST("/:id/resume", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ResumeOrbitMission)
+				orbit.POST("/:id/abort", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.AbortOrbitMission)
+				orbit.POST("/:id/progress", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UpdateOrbitProgress)
+			}
+
+			ortho := payloadMissions.Group("/ortho")
+			{
+				ortho.POST("", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.CreateOrthoMission)
+				ortho.GET("", handler.ListOrthoMissions)
+				ortho.GET("/:id", handler.GetOrthoMission)
+				ortho.POST("/:id/plan", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.PlanOrthoMission)
+				ortho.POST("/:id/start", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StartOrthoMission)
+				ortho.POST("/:id/pause", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.PauseOrthoMission)
+				ortho.POST("/:id/resume", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ResumeOrthoMission)
+				ortho.POST("/:id/abort", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.AbortOrthoMission)
+			}
+
+			tts := payloadMissions.Group("/tts")
+			{
+				tts.POST("", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.CreateTTS)
+				tts.GET("", handler.ListTTSTasks)
+				tts.GET("/:id", handler.GetTTSTask)
+			}
 		}
 
 		metrics := api.Group("/metrics")
