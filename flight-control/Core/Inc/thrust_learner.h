@@ -7,6 +7,8 @@
 typedef struct {
     float throttle;
     float accel_z;
+    float roll;
+    float pitch;
     float motor_pwm[4];
     float voltage;
     uint32_t timestamp;

@@ -567,6 +567,24 @@ func (h *Hub) BroadcastPIDGainsUpdate(uavID uint64, data interface{}) {
 	h.broadcast <- bytes
 }
 
+func (h *Hub) BroadcastThrustLearningSample(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "thrust_learning_sample",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
 func (h *Hub) SubscribeFormation(client *Client, formationID uint64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

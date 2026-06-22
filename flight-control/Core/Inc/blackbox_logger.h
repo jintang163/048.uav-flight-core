@@ -28,6 +28,8 @@
 #define BLACKBOX_EVENT_FAILSAFE         (1 << 12)
 #define BLACKBOX_EVENT_OBSTACLE_DETECTED (1 << 13)
 #define BLACKBOX_EVENT_OBSTACLE_CLEARED  (1 << 14)
+#define BLACKBOX_EVENT_THRUST_SAMPLE       (1 << 15)
+#define BLACKBOX_EVENT_THRUST_LEARN_DONE   (1 << 16)
 
 typedef struct __attribute__((packed)) {
     uint32_t magic;

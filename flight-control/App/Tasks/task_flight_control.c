@@ -8,6 +8,54 @@ static TaskHandle_t task_handle = NULL;
 static CascadePID roll_pid, pitch_pid, yaw_pid;
 static PIDController alt_pid, pos_x_pid, pos_y_pid;
 
+void task_flight_control_get_pid_gains(PIDGainSet *gains)
+{
+    if (gains == NULL) {
+        return;
+    }
+    gains->roll_p = roll_pid.angle_pid.kp;
+    gains->roll_i = roll_pid.angle_pid.ki;
+    gains->roll_d = roll_pid.angle_pid.kd;
+    gains->rate_roll_p = roll_pid.rate_pid.kp;
+    gains->rate_roll_i = roll_pid.rate_pid.ki;
+    gains->rate_roll_d = roll_pid.rate_pid.kd;
+
+    gains->pitch_p = pitch_pid.angle_pid.kp;
+    gains->pitch_i = pitch_pid.angle_pid.ki;
+    gains->pitch_d = pitch_pid.angle_pid.kd;
+    gains->rate_pitch_p = pitch_pid.rate_pid.kp;
+    gains->rate_pitch_i = pitch_pid.rate_pid.ki;
+    gains->rate_pitch_d = pitch_pid.rate_pid.kd;
+
+    gains->yaw_p = yaw_pid.angle_pid.kp;
+    gains->yaw_i = yaw_pid.angle_pid.ki;
+    gains->yaw_d = yaw_pid.angle_pid.kd;
+    gains->rate_yaw_p = yaw_pid.rate_pid.kp;
+    gains->rate_yaw_i = yaw_pid.rate_pid.ki;
+    gains->rate_yaw_d = yaw_pid.rate_pid.kd;
+
+    gains->alt_p = alt_pid.kp;
+    gains->alt_i = alt_pid.ki;
+    gains->alt_d = alt_pid.kd;
+}
+
+void task_flight_control_set_pid_gains(PIDGainSet *gains)
+{
+    if (gains == NULL) {
+        return;
+    }
+    pid_set_gains(&roll_pid.angle_pid, gains->roll_p, gains->roll_i, gains->roll_d);
+    pid_set_gains(&roll_pid.rate_pid, gains->rate_roll_p, gains->rate_roll_i, gains->rate_roll_d);
+
+    pid_set_gains(&pitch_pid.angle_pid, gains->pitch_p, gains->pitch_i, gains->pitch_d);
+    pid_set_gains(&pitch_pid.rate_pid, gains->rate_pitch_p, gains->rate_pitch_i, gains->rate_pitch_d);
+
+    pid_set_gains(&yaw_pid.angle_pid, gains->yaw_p, gains->yaw_i, gains->yaw_d);
+    pid_set_gains(&yaw_pid.rate_pid, gains->rate_yaw_p, gains->rate_yaw_i, gains->rate_yaw_d);
+
+    pid_set_gains(&alt_pid, gains->alt_p, gains->alt_i, gains->alt_d);
+}
+
 void task_flight_control_init(void)
 {
     cascade_pid_init(&roll_pid,

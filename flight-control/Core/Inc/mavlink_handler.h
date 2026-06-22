@@ -84,8 +84,14 @@ void mavlink_send_obstacle_avoidance_failed(void *event, const char *reason);
 void mavlink_set_primary_link(uint8_t link);
 void mavlink_receive_byte_from_link(uint8_t link, uint8_t byte);
 
+#define MAVLINK_MSG_ID_THRUST_LEARNING_STATUS 430
+#define MAVLINK_MSG_ID_THRUST_CURVE_DATA 431
+#define MAVLINK_MSG_ID_PID_GAINS_REPORT 432
+#define MAVLINK_MSG_ID_THRUST_SAMPLE 433
+
 void mavlink_send_thrust_learning_status(void);
 void mavlink_send_thrust_curve(uint8_t start_index, uint8_t count);
 void mavlink_send_pid_gains(void);
+void mavlink_send_thrust_sample(void *sample);
 
 #endif

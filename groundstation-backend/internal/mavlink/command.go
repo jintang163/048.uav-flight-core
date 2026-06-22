@@ -337,6 +337,9 @@ func (m *CommandManager) processMAVLinkMessage(msg *MAVLinkMessage) {
 
 	case PID_GAINS_REPORT:
 		m.processPIDGainsReport(uavID, msg.Payload)
+
+	case THRUST_SAMPLE:
+		m.processThrustSample(uavID, msg.Payload)
 	}
 
 	_ = nsq.Publish(nsq.TopicMAVLinkMessage, map[string]interface{}{
@@ -1086,4 +1089,28 @@ func (m *CommandManager) processPIDGainsReport(uavID uint64, payload []byte) {
 
 	profile, _ := tlService.GetPIDGains(uavID)
 	websocket.BroadcastPIDGainsUpdate(uavID, profile)
+}
+
+func (m *CommandManager) processThrustSample(uavID uint64, payload []byte) {
+	sampleData, err := ParseThrustSample(payload)
+	if err != nil {
+		return
+	}
+
+	tlService := service.NewThrustLearningService()
+	_ = tlService.StoreSample(uavID, sampleData)
+
+	wsData := map[string]interface{}{
+		"uav_id":    uavID,
+		"uavId":     uavID,
+		"id":        time.Now().UnixNano() / 1e6,
+		"throttle":  float64(sampleData.Throttle),
+		"accel_z":   float64(sampleData.AccelZ),
+		"altitude":  float64(sampleData.Altitude),
+		"vz":        float64(sampleData.VZ),
+		"motor_pwm": []uint16{sampleData.MotorPWM1, sampleData.MotorPWM2, sampleData.MotorPWM3, sampleData.MotorPWM4},
+		"voltage":   float64(sampleData.Voltage),
+		"timestamp": time.Now().UnixNano() / 1e6,
+	}
+	websocket.BroadcastThrustLearningSample(uavID, wsData)
 }

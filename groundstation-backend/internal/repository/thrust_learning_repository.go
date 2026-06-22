@@ -96,6 +96,14 @@ func (r *ThrustLearningRepository) ListSamples(uavID uint64, limit int) ([]model
 	return samples, err
 }
 
+func (r *ThrustLearningRepository) GetRecentSamples(uavID uint64, limit int) ([]models.ThrustLearningSample, error) {
+	return r.ListSamples(uavID, limit)
+}
+
+func (r *ThrustLearningRepository) ClearCurvePoints(uavID uint64) error {
+	return r.db.Where("uav_id = ?", uavID).Delete(&models.ThrustCurvePoint{}).Error
+}
+
 func (r *ThrustLearningRepository) OptimizeThrustCurve(uavID uint64) ([]models.ThrustCurvePoint, error) {
 	samples, err := r.ListSamples(uavID, 5000)
 	if err != nil {

@@ -44,6 +44,7 @@ const (
 	THRUST_LEARNING_STATUS    = 430
 	THRUST_CURVE_DATA         = 431
 	PID_GAINS_REPORT          = 432
+	THRUST_SAMPLE             = 433
 )
 
 const (

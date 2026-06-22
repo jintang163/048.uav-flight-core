@@ -1055,11 +1055,75 @@ void mavlink_send_obstacle_avoidance_failed(void *event_ptr, const char *reason)
 #define MAVLINK_MSG_ID_THRUST_LEARNING_STATUS 430
 #define MAVLINK_MSG_ID_THRUST_CURVE_DATA 431
 #define MAVLINK_MSG_ID_PID_GAINS_REPORT 432
+#define MAVLINK_MSG_ID_THRUST_SAMPLE 433
+
+#define MAVLINK_STX_V2 0xFD
+#define MAVLINK_HEADER_LEN_V2 10
+#define MAVLINK_CHECKSUM_LEN 2
+
+static uint8_t mavlink_custom_seq = 0;
+
+static uint16_t mavlink_crc_accumulate(uint8_t b, uint16_t crc)
+{
+    uint8_t ch = b ^ (uint8_t)(crc & 0xff);
+    ch ^= (ch << 4);
+    return (crc >> 8) ^ ((uint16_t)ch << 8) ^ ((uint16_t)ch << 3) ^ ((uint16_t)ch >> 4);
+}
+
+static void mavlink_send_custom_raw(uint32_t msgid, const uint8_t *payload, uint8_t payload_len)
+{
+    uint8_t buf[MAVLINK_HEADER_LEN_V2 + 255 + MAVLINK_CHECKSUM_LEN];
+    uint16_t crc = 0xFFFF;
+
+    buf[0] = MAVLINK_STX_V2;
+    buf[1] = payload_len;
+    buf[2] = 0;
+    buf[3] = 0;
+    buf[4] = mavlink_custom_seq++;
+    buf[5] = mavlink_data.system_id;
+    buf[6] = mavlink_data.component_id;
+    buf[7] = (uint8_t)(msgid & 0xFF);
+    buf[8] = (uint8_t)((msgid >> 8) & 0xFF);
+    buf[9] = (uint8_t)((msgid >> 16) & 0xFF);
+
+    for (int i = 1; i < MAVLINK_HEADER_LEN_V2; i++) {
+        crc = mavlink_crc_accumulate(buf[i], crc);
+    }
+
+    if (payload_len > 0 && payload != NULL) {
+        memcpy(buf + MAVLINK_HEADER_LEN_V2, payload, payload_len);
+        for (int i = 0; i < payload_len; i++) {
+            crc = mavlink_crc_accumulate(buf[MAVLINK_HEADER_LEN_V2 + i], crc);
+        }
+    }
+
+    uint16_t total_len = MAVLINK_HEADER_LEN_V2 + payload_len;
+    buf[total_len] = (uint8_t)(crc & 0xFF);
+    buf[total_len + 1] = (uint8_t)((crc >> 8) & 0xFF);
+    total_len += MAVLINK_CHECKSUM_LEN;
+
+    if (msgid == MAVLINK_MSG_ID_HEARTBEAT) {
+        HAL_UART_Transmit(&huart3, buf, total_len, 10);
+        HAL_UART_Transmit(&huart4, buf, total_len, 10);
+    } else {
+        LinkType active_link = link_manager_get_active_link();
+
+        if (mavlink_data.dual_link_enabled) {
+            HAL_UART_Transmit(&huart3, buf, total_len, 10);
+            HAL_UART_Transmit(&huart4, buf, total_len, 10);
+        } else {
+            if (active_link == LINK_TYPE_RADIO) {
+                HAL_UART_Transmit(&huart3, buf, total_len, 10);
+            } else {
+                HAL_UART_Transmit(&huart4, buf, total_len, 10);
+            }
+        }
+    }
+}
 
 void mavlink_send_thrust_learning_status(void)
 {
-    mavlink_message_t msg;
-    uint8_t payload[32];
+    uint8_t payload[17];
     memset(payload, 0, sizeof(payload));
 
     uint8_t state = (uint8_t)thrust_learner_get_state();
@@ -1069,20 +1133,12 @@ void mavlink_send_thrust_learning_status(void)
     float progress = (float)sample_cnt / (float)THRUST_LEARNER_MAX_SAMPLES;
 
     payload[0] = state;
-    memcpy(payload + 4, &weight_kg, 4);
-    memcpy(payload + 8, &hover_throttle, 4);
-    memcpy(payload + 12, &sample_cnt, 4);
-    memcpy(payload + 16, &progress, 4);
+    memcpy(payload + 1, &weight_kg, 4);
+    memcpy(payload + 5, &hover_throttle, 4);
+    memcpy(payload + 9, &sample_cnt, 4);
+    memcpy(payload + 13, &progress, 4);
 
-    mavlink_msg_statustext_pack(
-        mavlink_data.system_id,
-        mavlink_data.component_id,
-        &msg,
-        MAV_SEVERITY_INFO,
-        (const char *)payload,
-        0, 0
-    );
-    mavlink_send_message(&msg);
+    mavlink_send_custom_raw(MAVLINK_MSG_ID_THRUST_LEARNING_STATUS, payload, 17);
 
     char text[80];
     snprintf(text, sizeof(text),
@@ -1094,60 +1150,57 @@ void mavlink_send_thrust_learning_status(void)
 
 void mavlink_send_thrust_curve(uint8_t start_index, uint8_t count)
 {
-    mavlink_message_t msg;
     ThrustCurvePoint points[16];
     uint8_t actual_count = 0;
 
     thrust_learner_get_thrust_curve(points, start_index, count, &actual_count);
+    if (actual_count > 16) actual_count = 16;
 
-    uint8_t payload[132];
+    uint8_t payload[2 + 16 * 8];
     memset(payload, 0, sizeof(payload));
 
     payload[0] = start_index;
     payload[1] = actual_count;
 
-    for (uint8_t i = 0; i < actual_count && i < 16; i++) {
-        uint8_t offset = 4 + i * 8;
+    for (uint8_t i = 0; i < actual_count; i++) {
+        uint8_t offset = 2 + i * 8;
         memcpy(payload + offset, &points[i].throttle, 4);
         memcpy(payload + offset + 4, &points[i].thrust_N, 4);
     }
 
-    mavlink_msg_statustext_pack(
-        mavlink_data.system_id,
-        mavlink_data.component_id,
-        &msg,
-        MAV_SEVERITY_INFO,
-        (const char *)payload,
-        0, 0
-    );
-    mavlink_send_message(&msg);
+    mavlink_send_custom_raw(MAVLINK_MSG_ID_THRUST_CURVE_DATA, payload, 2 + actual_count * 8);
+
+    char text[80];
+    snprintf(text, sizeof(text),
+             "THRUST_CURVE: start=%u count=%u",
+             (unsigned)start_index, (unsigned)actual_count);
+    mavlink_send_statustext(MAV_SEVERITY_INFO, text);
 }
 
 void mavlink_send_pid_gains(void)
 {
-    mavlink_message_t msg;
     PIDGainSet gains;
-    thrust_learner_get_pid_gains(&gains);
+    flight_controller_get_pid_gains(&gains);
 
-    uint8_t payload[88];
+    uint8_t payload[84];
     memset(payload, 0, sizeof(payload));
 
     uint8_t offset = 0;
     memcpy(payload + offset, &gains.roll_p, 4); offset += 4;
     memcpy(payload + offset, &gains.roll_i, 4); offset += 4;
     memcpy(payload + offset, &gains.roll_d, 4); offset += 4;
-    memcpy(payload + offset, &gains.rate_roll_p, 4); offset += 4;
-    memcpy(payload + offset, &gains.rate_roll_i, 4); offset += 4;
-    memcpy(payload + offset, &gains.rate_roll_d, 4); offset += 4;
     memcpy(payload + offset, &gains.pitch_p, 4); offset += 4;
     memcpy(payload + offset, &gains.pitch_i, 4); offset += 4;
     memcpy(payload + offset, &gains.pitch_d, 4); offset += 4;
-    memcpy(payload + offset, &gains.rate_pitch_p, 4); offset += 4;
-    memcpy(payload + offset, &gains.rate_pitch_i, 4); offset += 4;
-    memcpy(payload + offset, &gains.rate_pitch_d, 4); offset += 4;
     memcpy(payload + offset, &gains.yaw_p, 4); offset += 4;
     memcpy(payload + offset, &gains.yaw_i, 4); offset += 4;
     memcpy(payload + offset, &gains.yaw_d, 4); offset += 4;
+    memcpy(payload + offset, &gains.rate_roll_p, 4); offset += 4;
+    memcpy(payload + offset, &gains.rate_roll_i, 4); offset += 4;
+    memcpy(payload + offset, &gains.rate_roll_d, 4); offset += 4;
+    memcpy(payload + offset, &gains.rate_pitch_p, 4); offset += 4;
+    memcpy(payload + offset, &gains.rate_pitch_i, 4); offset += 4;
+    memcpy(payload + offset, &gains.rate_pitch_d, 4); offset += 4;
     memcpy(payload + offset, &gains.rate_yaw_p, 4); offset += 4;
     memcpy(payload + offset, &gains.rate_yaw_i, 4); offset += 4;
     memcpy(payload + offset, &gains.rate_yaw_d, 4); offset += 4;
@@ -1155,15 +1208,7 @@ void mavlink_send_pid_gains(void)
     memcpy(payload + offset, &gains.alt_i, 4); offset += 4;
     memcpy(payload + offset, &gains.alt_d, 4); offset += 4;
 
-    mavlink_msg_statustext_pack(
-        mavlink_data.system_id,
-        mavlink_data.component_id,
-        &msg,
-        MAV_SEVERITY_INFO,
-        (const char *)payload,
-        0, 0
-    );
-    mavlink_send_message(&msg);
+    mavlink_send_custom_raw(MAVLINK_MSG_ID_PID_GAINS_REPORT, payload, 84);
 
     char text[100];
     snprintf(text, sizeof(text),
@@ -1171,4 +1216,38 @@ void mavlink_send_pid_gains(void)
              gains.roll_p, gains.roll_i, gains.roll_d,
              gains.alt_p, gains.alt_i, gains.alt_d);
     mavlink_send_statustext(MAV_SEVERITY_INFO, text);
+}
+
+void mavlink_send_thrust_sample(void *sample_ptr)
+{
+    if (sample_ptr == NULL) {
+        return;
+    }
+    ThrustSample *sample = (ThrustSample *)sample_ptr;
+
+    uint8_t payload[24];
+    memset(payload, 0, sizeof(payload));
+
+    PositionState pos;
+    flight_controller_get_position(&pos);
+
+    float throttle = sample->throttle;
+    float accel_z = sample->accel_z;
+    float altitude = pos.altitude;
+    float vz = pos.velocity.vd;
+    uint16_t pwm1 = (uint16_t)sample->motor_pwm[0];
+    uint16_t pwm2 = (uint16_t)sample->motor_pwm[1];
+    uint16_t pwm3 = (uint16_t)sample->motor_pwm[2];
+    uint16_t pwm4 = (uint16_t)sample->motor_pwm[3];
+
+    memcpy(payload + 0, &throttle, 4);
+    memcpy(payload + 4, &accel_z, 4);
+    memcpy(payload + 8, &altitude, 4);
+    memcpy(payload + 12, &vz, 4);
+    memcpy(payload + 16, &pwm1, 2);
+    memcpy(payload + 18, &pwm2, 2);
+    memcpy(payload + 20, &pwm3, 2);
+    memcpy(payload + 22, &pwm4, 2);
+
+    mavlink_send_custom_raw(MAVLINK_MSG_ID_THRUST_SAMPLE, payload, 24);
 }

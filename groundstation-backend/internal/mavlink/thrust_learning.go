@@ -88,6 +88,38 @@ func ParseThrustCurveData(payload []byte) (startIdx int, count int, points []str
 	return
 }
 
+type ThrustSampleData struct {
+	Throttle    float32
+	AccelZ      float32
+	Altitude    float32
+	VZ          float32
+	MotorPWM1   uint16
+	MotorPWM2   uint16
+	MotorPWM3   uint16
+	MotorPWM4   uint16
+	Voltage     float32
+	TimestampMs uint64
+}
+
+func ParseThrustSample(payload []byte) (*ThrustSampleData, error) {
+	if len(payload) < 24 {
+		return nil, errors.New("payload too short for thrust sample")
+	}
+
+	sample := &ThrustSampleData{
+		Throttle:  math.Float32frombits(binary.LittleEndian.Uint32(payload[0:4])),
+		AccelZ:    math.Float32frombits(binary.LittleEndian.Uint32(payload[4:8])),
+		Altitude:  math.Float32frombits(binary.LittleEndian.Uint32(payload[8:12])),
+		VZ:        math.Float32frombits(binary.LittleEndian.Uint32(payload[12:16])),
+		MotorPWM1: binary.LittleEndian.Uint16(payload[16:18]),
+		MotorPWM2: binary.LittleEndian.Uint16(payload[18:20]),
+		MotorPWM3: binary.LittleEndian.Uint16(payload[20:22]),
+		MotorPWM4: binary.LittleEndian.Uint16(payload[22:24]),
+	}
+
+	return sample, nil
+}
+
 func ParsePIDGainsReport(payload []byte) (map[string]float64, error) {
 	if len(payload) < 60 {
 		return nil, errors.New("payload too short for PID gains report")

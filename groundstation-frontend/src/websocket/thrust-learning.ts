@@ -37,7 +37,7 @@ export const setupThrustLearningHandlers = (wsClient: WebSocketClient, dispatch:
 
   wsClient.on('thrust_learning_sample', (data: unknown) => {
     const sample = data as ThrustLearningSample
-    if (sample.id !== undefined) {
+    if (sample.throttle !== undefined && sample.accel_z !== undefined) {
       dispatch(appendSample(sample))
     }
   })

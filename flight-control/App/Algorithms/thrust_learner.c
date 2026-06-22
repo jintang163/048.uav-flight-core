@@ -3,6 +3,9 @@
 #include "sensor_manager.h"
 #include "pid_controller.h"
 #include "task_attitude_estimation.h"
+#include "motor_control.h"
+#include "blackbox_logger.h"
+#include "mavlink_handler.h"
 #include <string.h>
 #include <math.h>
 
@@ -132,7 +135,7 @@ static void update_pid_gains_based_on_weight(void)
     flight_controller_set_pid_gains(&current_gains);
 }
 
-static void collect_thrust_sample(float throttle, float accel_z)
+static void collect_thrust_sample(float throttle, float accel_z, float roll, float pitch)
 {
     if (sample_count >= THRUST_LEARNER_MAX_SAMPLES) {
         return;
@@ -141,15 +144,30 @@ static void collect_thrust_sample(float throttle, float accel_z)
     BatteryState battery;
     sensor_manager_get_battery(&battery);
 
+    uint32_t pwms[4];
+    motor_control_get_all_pwm(pwms);
+
     samples[sample_count].throttle = throttle;
     samples[sample_count].accel_z = accel_z;
-    samples[sample_count].motor_pwm[0] = 0.0f;
-    samples[sample_count].motor_pwm[1] = 0.0f;
-    samples[sample_count].motor_pwm[2] = 0.0f;
-    samples[sample_count].motor_pwm[3] = 0.0f;
+    samples[sample_count].roll = roll;
+    samples[sample_count].pitch = pitch;
+    for (int m = 0; m < 4; m++) {
+        samples[sample_count].motor_pwm[m] = (float)pwms[m];
+    }
     samples[sample_count].voltage = battery.voltage;
     samples[sample_count].timestamp = HAL_GetTick();
     sample_count++;
+
+    blackbox_log_event(
+        BLACKBOX_EVENT_THRUST_SAMPLE,
+        (int32_t)(throttle * 1000),
+        (int32_t)(accel_z * 1000),
+        samples[sample_count - 1].motor_pwm[0],
+        samples[sample_count - 1].voltage,
+        "THRUST: sample"
+    );
+
+    mavlink_send_thrust_sample(&samples[sample_count - 1]);
 }
 
 static void build_thrust_curve(void)
@@ -161,10 +179,90 @@ static void build_thrust_curve(void)
     float throttle_step = 1.0f / (float)(THRUST_CURVE_POINT_COUNT - 1);
     float weight = weight_state.estimated_weight_kg;
 
+    float bucket_thrust_sum[THRUST_CURVE_POINT_COUNT];
+    float bucket_pwm_sum[THRUST_CURVE_POINT_COUNT];
+    uint32_t bucket_count[THRUST_CURVE_POINT_COUNT];
+    bool bucket_valid[THRUST_CURVE_POINT_COUNT];
+
+    memset(bucket_thrust_sum, 0, sizeof(bucket_thrust_sum));
+    memset(bucket_pwm_sum, 0, sizeof(bucket_pwm_sum));
+    memset(bucket_count, 0, sizeof(bucket_count));
+    memset(bucket_valid, 0, sizeof(bucket_valid));
+
+    for (uint32_t s = 0; s < sample_count; s++) {
+        int bucket_idx = (int)(samples[s].throttle / throttle_step + 0.5f);
+        if (bucket_idx < 0) bucket_idx = 0;
+        if (bucket_idx >= THRUST_CURVE_POINT_COUNT) bucket_idx = THRUST_CURVE_POINT_COUNT - 1;
+
+        float cos_roll = cosf(samples[s].roll);
+        float cos_pitch = cosf(samples[s].pitch);
+        float gravity_compensated_accel = samples[s].accel_z - GRAVITY * cos_roll * cos_pitch;
+        float thrust_N = gravity_compensated_accel * weight + GRAVITY * weight;
+
+        float pwm_avg = 0.0f;
+        for (int m = 0; m < 4; m++) {
+            pwm_avg += samples[s].motor_pwm[m];
+        }
+        pwm_avg /= 4.0f;
+
+        bucket_thrust_sum[bucket_idx] += thrust_N;
+        bucket_pwm_sum[bucket_idx] += pwm_avg;
+        bucket_count[bucket_idx]++;
+    }
+
     for (uint8_t i = 0; i < THRUST_CURVE_POINT_COUNT; i++) {
         thrust_curve[i].throttle = i * throttle_step;
-        thrust_curve[i].thrust_N = weight * GRAVITY * thrust_curve[i].throttle * 2.0f;
-        thrust_curve[i].motor_rpm_avg = thrust_curve[i].throttle * 5000.0f + 1000.0f;
+        if (bucket_count[i] >= 2) {
+            thrust_curve[i].thrust_N = bucket_thrust_sum[i] / (float)bucket_count[i];
+            float pwm_avg = bucket_pwm_sum[i] / (float)bucket_count[i];
+            thrust_curve[i].motor_rpm_avg = pwm_avg * PWM_TO_RPM_SCALE;
+            bucket_valid[i] = true;
+        } else {
+            thrust_curve[i].thrust_N = 0.0f;
+            thrust_curve[i].motor_rpm_avg = 0.0f;
+            bucket_valid[i] = false;
+        }
+    }
+
+    int8_t first_valid = -1;
+    int8_t last_valid = -1;
+    for (int8_t i = 0; i < THRUST_CURVE_POINT_COUNT; i++) {
+        if (bucket_valid[i]) {
+            if (first_valid < 0) first_valid = i;
+            last_valid = i;
+        }
+    }
+
+    if (first_valid >= 0) {
+        for (int8_t i = 0; i < first_valid; i++) {
+            thrust_curve[i].thrust_N = thrust_curve[first_valid].thrust_N;
+            thrust_curve[i].motor_rpm_avg = thrust_curve[first_valid].motor_rpm_avg;
+            bucket_valid[i] = true;
+        }
+    }
+    if (last_valid >= 0) {
+        for (int8_t i = last_valid + 1; i < THRUST_CURVE_POINT_COUNT; i++) {
+            thrust_curve[i].thrust_N = thrust_curve[last_valid].thrust_N;
+            thrust_curve[i].motor_rpm_avg = thrust_curve[last_valid].motor_rpm_avg;
+            bucket_valid[i] = true;
+        }
+    }
+
+    int8_t prev_valid = first_valid;
+    for (int8_t i = first_valid + 1; i <= last_valid; i++) {
+        if (bucket_valid[i]) {
+            if (prev_valid >= 0 && i - prev_valid > 1) {
+                for (int8_t j = prev_valid + 1; j < i; j++) {
+                    float t = (float)(j - prev_valid) / (float)(i - prev_valid);
+                    thrust_curve[j].thrust_N = thrust_curve[prev_valid].thrust_N * (1.0f - t) +
+                                               thrust_curve[i].thrust_N * t;
+                    thrust_curve[j].motor_rpm_avg = thrust_curve[prev_valid].motor_rpm_avg * (1.0f - t) +
+                                                    thrust_curve[i].motor_rpm_avg * t;
+                    bucket_valid[j] = true;
+                }
+            }
+            prev_valid = i;
+        }
     }
 
     float sum_xy = 0.0f, sum_x = 0.0f, sum_y = 0.0f, sum_x2 = 0.0f;
@@ -302,7 +400,7 @@ void thrust_learner_update(float dt)
         if (cmd.throttle > 0.1f && cmd.throttle < 0.95f &&
             fabsf(attitude.euler.roll) < DEG2RAD(10.0f) &&
             fabsf(attitude.euler.pitch) < DEG2RAD(10.0f)) {
-            collect_thrust_sample(cmd.throttle, accel_z);
+            collect_thrust_sample(cmd.throttle, accel_z, attitude.euler.roll, attitude.euler.pitch);
         }
 
         update_pid_gains_based_on_weight();
@@ -362,6 +460,13 @@ void thrust_learner_trigger_optimization(void)
     build_thrust_curve();
     update_pid_gains_based_on_weight();
     learner_state = LS_APPLIED;
+
+    blackbox_log_event(BLACKBOX_EVENT_THRUST_LEARN_DONE,
+        (int32_t)(weight_state.estimated_weight_kg * 1000),
+        (int32_t)(weight_state.hover_throttle * 1000),
+        thrust_curve_linearity,
+        (float)sample_count,
+        "THRUST: learning complete");
 }
 
 uint32_t thrust_learner_get_sample_count(void)

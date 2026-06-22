@@ -289,3 +289,7 @@ func BroadcastThrustCurveUpdate(uavID uint64, data interface{}) {
 func BroadcastPIDGainsUpdate(uavID uint64, data interface{}) {
 	telemetryHub.BroadcastPIDGainsUpdate(uavID, data)
 }
+
+func BroadcastThrustLearningSample(uavID uint64, data interface{}) {
+	telemetryHub.BroadcastThrustLearningSample(uavID, data)
+}

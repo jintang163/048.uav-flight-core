@@ -411,6 +411,11 @@ func ExecuteCommand(cmd *CommandRequest) (bool, error) {
 			float32(param4), float32(param5), float32(param6),
 			float32(param7))
 
+	case "optimize_thrust_model":
+		tlService := service.NewThrustLearningService()
+		_, err := tlService.OptimizeModel(cmd.UAVID)
+		return err == nil, err
+
 	default:
 		return false, errors.New("未知的命令类型: " + cmd.Command)
 	}
