@@ -65,7 +65,8 @@ import {
   sendFlightControlCommand,
   getAvailableCockpitUAVs,
   switchCockpitUAV,
-  getVideoStreamUrl
+  getVideoStreamUrl,
+  triggerMissionFallback
 } from '@/api/remote-cockpit'
 import { getWebSocketClient } from '@/websocket/client'
 import type {
@@ -235,13 +236,18 @@ export const useRemoteCockpit = (uavId?: string) => {
     }
   }, [dispatch, state.auto_mission_fallback, mode])
 
-  const triggerAutoMissionFallback = useCallback((reason: string) => {
+  const triggerAutoMissionFallback = useCallback(async (reason: string) => {
     dispatch(setCockpitMode(CockpitMode.MISSION))
     const targetId = effectiveUAVId
     if (targetId) {
       const client = wsClientRef.current
       if (client?.connected) {
         client.send('trigger_mission_fallback', { uav_id: targetId, reason })
+      }
+      try {
+        await triggerMissionFallback(targetId, reason)
+      } catch (error) {
+        console.error('Failed to trigger mission fallback via API:', error)
       }
     }
   }, [dispatch, effectiveUAVId])

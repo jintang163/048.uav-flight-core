@@ -11,9 +11,12 @@ require (
 	github.com/gorilla/websocket v1.5.1
 	github.com/minio/minio-go/v7 v7.0.63
 	github.com/nsqio/go-nsq v1.1.0
+	github.com/pion/rtp v1.8.9
+	github.com/pion/webrtc/v3 v3.3.5
 	github.com/prometheus/client_golang v1.18.0
 	github.com/spf13/viper v1.18.2
 	github.com/tjfoc/gmsm v1.4.1
+	go.uber.org/zap v1.26.0
 	golang.org/x/crypto v0.17.0
 	gorm.io/driver/mysql v1.5.2
 	gorm.io/gorm v1.26.1

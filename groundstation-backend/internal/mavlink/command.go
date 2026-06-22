@@ -763,9 +763,77 @@ func (m *CommandManager) SendCommand(uavID uint64, data []byte) error {
 }
 
 func (m *CommandManager) SendCustomCommand(uavID uint64, commandName string, params map[string]interface{}) error {
-	encoder := NewMAVLinkEncoder()
-	data := encoder.EncodeCommandLong(0, uavID, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+	var cmd uint16
+	var p [7]float32
+
+	switch commandName {
+	case "video_start":
+		cmd = 50001
+		p[0] = floatParam(params, "param1")
+		p[1] = floatParam(params, "param2")
+		p[2] = floatParam(params, "param3")
+		p[3] = floatParam(params, "param4")
+		p[4] = 1
+	case "video_stop":
+		cmd = 50002
+	case "video_quality_adjust":
+		cmd = 50003
+		p[0] = floatParam(params, "bitrate_kbps")
+	case "set_primary_link":
+		cmd = 50010
+		if lt, ok := params["link_type"]; ok {
+			switch v := lt.(type) {
+			case models.LinkType:
+				p[0] = float32(v)
+			case float64:
+				p[0] = float32(v)
+			case int:
+				p[0] = float32(v)
+			}
+		}
+	case "set_mode":
+		cmd = CMD_DO_SET_MODE
+		p[0] = 1
+		modeStr := "AUTO"
+		if v, ok := params["mode"].(string); ok {
+			modeStr = v
+		}
+		p[1] = float32(GetFlightModeCode(modeStr))
+	case "velocity":
+		cmd = CMD_DO_SET_POSITION_TARGET_LOCAL_NED
+		p[0] = floatParam(params, "vx")
+		p[1] = floatParam(params, "vy")
+		p[2] = floatParam(params, "vz")
+		p[3] = floatParam(params, "yaw_rate")
+	default:
+		cmd = 50000
+		p[0] = floatParam(params, "param1")
+		p[1] = floatParam(params, "param2")
+		p[2] = floatParam(params, "param3")
+		p[3] = floatParam(params, "param4")
+		p[4] = floatParam(params, "param5")
+		p[5] = floatParam(params, "param6")
+		p[6] = floatParam(params, "param7")
+	}
+
+	data := EncodeCommandLong(uavID, cmd, p[0], p[1], p[2], p[3], p[4], p[5], p[6])
 	return m.SendCommand(uavID, data)
+}
+
+func floatParam(params map[string]interface{}, key string) float32 {
+	if v, ok := params[key]; ok {
+		switch val := v.(type) {
+		case float64:
+			return float32(val)
+		case float32:
+			return val
+		case int:
+			return float32(val)
+		case int64:
+			return float32(val)
+		}
+	}
+	return 0
 }
 
 func (m *CommandManager) generateUAVID(addr string) uint64 {

@@ -615,3 +615,235 @@ func (h *Hub) broadcastFormations() {
 		h.BroadcastFormationUpdate(formation.ID, formation)
 	}
 }
+
+func (h *Hub) BroadcastRemoteCockpitSession(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "cockpit_session_started",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastRemoteCockpitSessionEnd(uavID uint64, sessionID string) {
+	data := map[string]interface{}{
+		"uav_id":     uavID,
+		"session_id": sessionID,
+		"timestamp":  time.Now().UnixNano() / 1e6,
+	}
+	msg := &Message{
+		Type:    "cockpit_session_ended",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastRemoteCockpitMode(uavID uint64, mode string) {
+	data := map[string]interface{}{
+		"uav_id":    uavID,
+		"mode":        mode,
+		"timestamp":   time.Now().UnixNano() / 1e6,
+	}
+	msg := &Message{
+		Type:    "cockpit_mode_changed",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastVideoStreamStatus(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "video_stream_status",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastVideoStreamDisconnected(uavID uint64) {
+	data := map[string]interface{}{
+		"uav_id":    uavID,
+		"active":     false,
+		"timestamp":  time.Now().UnixNano() / 1e6,
+	}
+	msg := &Message{
+		Type:    "video_stream_disconnected",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastVideoQualityAdjusted(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "video_quality_adjusted",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastRemoteCockpitLinkStatus(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "cockpit_link_status",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastCockpitLinkFailover(uavID uint64, fromLink, toLink string) {
+	data := map[string]interface{}{
+		"uav_id":    uavID,
+		"from_link":   fromLink,
+		"to_link":     toLink,
+		"timestamp": time.Now().UnixNano() / 1e6,
+	}
+	msg := &Message{
+		Type:    "cockpit_link_failover",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastAutoMissionFallback(uavID uint64, reason string) {
+	data := map[string]interface{}{
+		"uav_id":  uavID,
+		"reason":     reason,
+		"timestamp":  time.Now().UnixNano() / 1e6,
+	}
+	msg := &Message{
+		Type:    "auto_mission_fallback_triggered",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastCockpitUAVSwitched(fromUAVID, toUAVID uint64, pilotID uint64) {
+	data := map[string]interface{}{
+		"from_uav_id": fromUAVID,
+		"to_uav_id":   toUAVID,
+		"pilot_id":    pilotID,
+		"timestamp":     time.Now().UnixNano() / 1e6,
+	}
+	msg := &Message{
+		Type:    "cockpit_uav_switched",
+		Data:    data,
+		Payload: data,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func GetHub() *Hub {
+	return hub
+}
+
+func (h *Hub) BroadcastWebRTCStats(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "webrtc_stats",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}

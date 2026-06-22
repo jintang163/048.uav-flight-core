@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"groundstation-backend/internal/config"
+	"groundstation-backend/internal/mavlink"
 	"groundstation-backend/internal/middleware"
 	"groundstation-backend/internal/models"
 	"groundstation-backend/internal/service"
@@ -47,6 +48,9 @@ func (cm *ConsumerManager) StartConsumers() error {
 		return err
 	}
 	if err := cm.startGeofenceViolationConsumer(); err != nil {
+		return err
+	}
+	if err := cm.startLinkHealthConsumer(); err != nil {
 		return err
 	}
 	return nil
@@ -184,6 +188,41 @@ func (cm *ConsumerManager) startGeofenceViolationConsumer() error {
 
 	cm.consumers[TopicGeofenceViolation] = consumer
 	middleware.Logger.Info("NSQ consumer started", zap.String("topic", TopicGeofenceViolation))
+	return nil
+}
+
+func (cm *ConsumerManager) startLinkHealthConsumer() error {
+	cfg := config.AppConfig.NSQ
+	config := nsq.NewConfig()
+
+	consumer, err := nsq.NewConsumer(TopicLinkStatus, ChannelLinkHealthHandler, config)
+	if err != nil {
+		return err
+	}
+
+	consumer.AddHandler(nsq.HandlerFunc(func(message *nsq.Message) error {
+		var data struct {
+			UAVID          uint64 `json:"uav_id"`
+			RadioConnected bool   `json:"radio_connected"`
+			LteConnected   bool   `json:"lte_connected"`
+		}
+		if err := json.Unmarshal(message.Body, &data); err != nil {
+			return nil
+		}
+
+		if !data.RadioConnected && !data.LteConnected {
+			_ = service.NewRemoteCockpitService().TriggerAutoMissionFallback(data.UAVID, "all_links_disconnected")
+		}
+		return nil
+	}))
+
+	err = consumer.ConnectToNSQLookupds(cfg.LookupdAddresses)
+	if err != nil {
+		return err
+	}
+
+	cm.consumers[TopicLinkStatus] = consumer
+	middleware.Logger.Info("NSQ consumer started", zap.String("topic", TopicLinkStatus))
 	return nil
 }
 

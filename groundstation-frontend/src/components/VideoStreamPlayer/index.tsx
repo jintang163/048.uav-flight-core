@@ -13,8 +13,10 @@ import {
   DisconnectOutlined
 } from '@ant-design/icons'
 import type { VideoStreamStatus, VideoStreamConfig } from '@/types'
-import { VideoCodecText, getResolutionDimensions } from '@/types/remote-cockpit'
+import { VideoCodec, VideoCodecText, getResolutionDimensions } from '@/types/remote-cockpit'
 import { getVideoStreamUrl } from '@/api/remote-cockpit'
+import { useAppDispatch } from '@/store'
+import { updateVideoStatus } from '@/store/slices/remote-cockpit'
 
 const pulse = keyframes`
   0%, 100% { opacity: 1; }
@@ -58,6 +60,17 @@ const VideoElement = styled.video`
   height: 100%;
   object-fit: contain;
   background: #000;
+`
+
+const CanvasElement = styled.canvas<{ $visible: boolean }>`
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  display: ${props => props.$visible ? 'block' : 'none'};
 `
 
 const Overlay = styled.div<{ $visible: boolean }>`
@@ -165,6 +178,111 @@ const MessageText = styled.div`
   margin-bottom: 16px;
 `
 
+interface RealtimeStats {
+  latency_ms: number
+  jitter_ms: number
+  packet_loss: number
+  frames_decoded: number
+  frames_dropped: number
+  packetsReceived: number
+  packetsLost: number
+}
+
+class H265Decoder {
+  private canvas: HTMLCanvasElement | null = null
+  private ws: WebSocket | null = null
+  private decoderWorker: Worker | null = null
+  private rendering = false
+
+  async init(canvas: HTMLCanvasElement): Promise<void> {
+    this.canvas = canvas
+    try {
+      this.decoderWorker = new Worker(
+        URL.createObjectURL(
+          new Blob(
+            [
+              'self.onmessage=function(e){if(e.data.type==="decode"){console.debug("[H265Decoder Worker] Would decode NAL unit, size:",e.data.nal.byteLength);self.postMessage({type:"frame",width:0,height:0})}else if(e.data.type==="init"){console.debug("[H265Decoder Worker] WASM decoder initialized (stub)")}}'
+            ],
+            { type: 'application/javascript' }
+          )
+        )
+      )
+      this.decoderWorker.onmessage = (e: MessageEvent) => {
+        if (e.data.type === 'frame' && this.canvas && e.data.bitmap) {
+          const ctx = this.canvas.getContext('2d')
+          if (ctx) {
+            ctx.drawImage(e.data.bitmap, 0, 0, this.canvas.width, this.canvas.height)
+            e.data.bitmap.close()
+          }
+        }
+      }
+      this.decoderWorker.postMessage({ type: 'init' })
+    } catch {
+      console.error('[H265Decoder] Failed to initialize decoder worker')
+    }
+  }
+
+  connect(url: string): void {
+    if (this.ws) {
+      this.ws.close()
+    }
+    this.rendering = true
+    this.ws = new WebSocket(url)
+    this.ws.binaryType = 'arraybuffer'
+    this.ws.onopen = () => {
+      console.debug('[H265Decoder] WebSocket connected to', url)
+    }
+    this.ws.onmessage = (event: MessageEvent) => {
+      if (event.data instanceof ArrayBuffer) {
+        this.onMessage(event.data)
+      }
+    }
+    this.ws.onclose = () => {
+      console.debug('[H265Decoder] WebSocket closed')
+    }
+    this.ws.onerror = () => {
+      console.error('[H265Decoder] WebSocket error')
+    }
+  }
+
+  disconnect(): void {
+    this.rendering = false
+    if (this.ws) {
+      this.ws.close()
+      this.ws = null
+    }
+  }
+
+  private onMessage(data: ArrayBuffer): void {
+    if (!this.decoderWorker) return
+    const nal = new Uint8Array(data)
+    this.decoderWorker.postMessage({ type: 'decode', nal }, [nal.buffer])
+  }
+
+  destroy(): void {
+    this.disconnect()
+    if (this.decoderWorker) {
+      this.decoderWorker.terminate()
+      this.decoderWorker = null
+    }
+    this.canvas = null
+  }
+}
+
+function checkH265Support(): boolean {
+  try {
+    const capabilities = RTCRtpReceiver.getCapabilities('video')
+    if (!capabilities) return false
+    return capabilities.codecs.some(
+      c =>
+        c.mimeType.toLowerCase().includes('h265') ||
+        c.mimeType.toLowerCase().includes('hevc')
+    )
+  } catch {
+    return false
+  }
+}
+
 interface VideoStreamPlayerProps {
   uavId: string
   videoStatus: VideoStreamStatus
@@ -189,54 +307,278 @@ const VideoStreamPlayer: React.FC<VideoStreamPlayerProps> = ({
   height
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const [streamUrl, setStreamUrl] = useState<string>('')
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const pcRef = useRef<RTCPeerConnection | null>(null)
+  const decoderRef = useRef<H265Decoder | null>(null)
+  const statsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [isWasmMode, setIsWasmMode] = useState(false)
+  const [realtimeStats, setRealtimeStats] = useState<RealtimeStats>({
+    latency_ms: 0,
+    jitter_ms: 0,
+    packet_loss: 0,
+    frames_decoded: 0,
+    frames_dropped: 0,
+    packetsReceived: 0,
+    packetsLost: 0
+  })
   const loadAttemptsRef = useRef<number>(0)
+  const dispatch = useAppDispatch()
 
-  const loadStreamUrl = useCallback(async () => {
+  const getToken = useCallback((): string | null => {
+    try {
+      return localStorage.getItem('accessToken')
+    } catch {
+      return null
+    }
+  }, [])
+
+  const collectStats = useCallback(async () => {
+    const pc = pcRef.current
+    if (!pc) return
+    try {
+      const stats = await pc.getStats()
+      let latencyMs = 0
+      let jitterMs = 0
+      let packetLoss = 0
+      let framesDecoded = 0
+      let framesDropped = 0
+      let packetsReceived = 0
+      let packetsLost = 0
+
+      stats.forEach(report => {
+        if (report.type === 'inbound-rtp' && report.kind === 'video') {
+          packetsReceived = report.packetsReceived ?? 0
+          packetsLost = report.packetsLost ?? 0
+          framesDecoded = report.framesDecoded ?? 0
+          framesDropped = report.framesDropped ?? 0
+          const jitterDelay = report.jitterBufferDelay ?? 0
+          const jitterEmitted = report.jitterBufferEmittedCount ?? 1
+          jitterMs = (jitterDelay / jitterEmitted) * 1000
+          packetLoss =
+            packetsReceived + packetsLost > 0
+              ? (packetsLost / (packetsReceived + packetsLost)) * 100
+              : 0
+        }
+
+        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+          if (report.currentRoundTripTime !== undefined) {
+            latencyMs = report.currentRoundTripTime * 1000
+          }
+        }
+      })
+
+      const newStats: RealtimeStats = {
+        latency_ms: Math.round(latencyMs),
+        jitter_ms: Math.round(jitterMs * 100) / 100,
+        packet_loss: Math.round(packetLoss * 100) / 100,
+        frames_decoded: framesDecoded,
+        frames_dropped: framesDropped,
+        packetsReceived,
+        packetsLost
+      }
+
+      setRealtimeStats(newStats)
+      dispatch(
+        updateVideoStatus({
+          latency_ms: newStats.latency_ms,
+          jitter_ms: newStats.jitter_ms,
+          packet_loss: newStats.packet_loss,
+          frames_decoded: newStats.frames_decoded,
+          frames_dropped: newStats.frames_dropped
+        })
+      )
+    } catch {
+      // stats collection failed silently
+    }
+  }, [dispatch])
+
+  const startStatsCollection = useCallback(() => {
+    if (statsTimerRef.current) clearInterval(statsTimerRef.current)
+    statsTimerRef.current = setInterval(collectStats, 1000)
+  }, [collectStats])
+
+  const stopStatsCollection = useCallback(() => {
+    if (statsTimerRef.current) {
+      clearInterval(statsTimerRef.current)
+      statsTimerRef.current = null
+    }
+  }, [])
+
+  const closePeerConnection = useCallback(() => {
+    if (pcRef.current) {
+      pcRef.current.close()
+      pcRef.current = null
+    }
+  }, [])
+
+  const setupWebRTC = useCallback(async () => {
     if (!uavId) return
     setLoading(true)
     setError(null)
+
     try {
-      const result = await getVideoStreamUrl(uavId, 'webrtc')
+      const isH265 = videoConfig.codec === VideoCodec.H265
+      const browserSupportsH265 = checkH265Support()
+
+      if (isH265 && !browserSupportsH265) {
+        await setupWasmFallback()
+        return
+      }
+
+      const pc = new RTCPeerConnection({
+        iceServers: [],
+        bundlePolicy: 'max-bundle'
+      })
+      pcRef.current = pc
+
+      pc.addTransceiver('video', { direction: 'recvonly' })
+
+      pc.ontrack = (event: RTCTrackEvent) => {
+        if (videoRef.current && event.streams[0]) {
+          videoRef.current.srcObject = event.streams[0]
+          videoRef.current.play().catch(() => {
+            setIsPlaying(false)
+          })
+        }
+      }
+
+      pc.onicecandidate = (event: RTCPeerConnectionIceEvent) => {
+        if (event.candidate === null) {
+          sendSDPOffer(pc)
+        }
+      }
+
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+          setError('WebRTC 连接断开')
+          setIsPlaying(false)
+          stopStatsCollection()
+        } else if (pc.connectionState === 'connected') {
+          setIsPlaying(true)
+          startStatsCollection()
+        }
+      }
+
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'WebRTC 连接失败')
+      setLoading(false)
+    }
+  }, [uavId, videoConfig.codec, startStatsCollection, stopStatsCollection])
+
+  const sendSDPOffer = useCallback(async (pc: RTCPeerConnection) => {
+    if (!pc.localDescription) return
+    const token = getToken()
+    try {
+      const response = await fetch(`/api/v1/remote-cockpit/video/${uavId}/sdp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/sdp',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: pc.localDescription.sdp
+      })
+
+      if (!response.ok) {
+        throw new Error(`SDP exchange failed: ${response.status}`)
+      }
+
+      const answer = await response.text()
+      await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answer }))
+      setLoading(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'SDP 交换失败')
+      setLoading(false)
+      closePeerConnection()
+    }
+  }, [uavId, getToken, closePeerConnection])
+
+  const setupWasmFallback = useCallback(async () => {
+    setIsWasmMode(true)
+
+    if (canvasRef.current && !decoderRef.current) {
+      const decoder = new H265Decoder()
+      await decoder.init(canvasRef.current)
+      decoderRef.current = decoder
+    }
+
+    try {
+      const result = await getVideoStreamUrl(uavId, 'ws')
       if (result?.url) {
-        setStreamUrl(result.url)
+        decoderRef.current?.connect(result.url)
+        setIsPlaying(true)
+        setLoading(false)
       } else {
-        setError('无法获取视频流地址')
+        const wsUrl = `ws://${window.location.hostname}:8889/ws/uav_${uavId}`
+        decoderRef.current?.connect(wsUrl)
+        setIsPlaying(true)
+        setLoading(false)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载视频流失败')
-    } finally {
+      const wsUrl = `ws://${window.location.hostname}:8889/ws/uav_${uavId}`
+      decoderRef.current?.connect(wsUrl)
+      setIsPlaying(true)
       setLoading(false)
     }
   }, [uavId])
 
+  const handleStart = useCallback(async () => {
+    onStart?.()
+    loadAttemptsRef.current = 0
+    await setupWebRTC()
+  }, [onStart, setupWebRTC])
+
+  const handleStop = useCallback(() => {
+    closePeerConnection()
+    stopStatsCollection()
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
+    }
+
+    if (decoderRef.current) {
+      decoderRef.current.disconnect()
+    }
+
+    setIsWasmMode(false)
+    setIsPlaying(false)
+    onStop?.()
+  }, [closePeerConnection, stopStatsCollection, onStop])
+
+  const handleReload = useCallback(async () => {
+    handleStop()
+    setTimeout(handleStart, 500)
+  }, [handleStop, handleStart])
+
   useEffect(() => {
     if (autoPlay && videoStatus.active) {
-      loadStreamUrl()
+      setupWebRTC()
     }
     return () => {
-      if (videoRef.current?.srcObject) {
+      closePeerConnection()
+      stopStatsCollection()
+      if (decoderRef.current) {
+        decoderRef.current.destroy()
+        decoderRef.current = null
+      }
+      if (videoRef.current) {
         videoRef.current.srcObject = null
       }
     }
-  }, [autoPlay, videoStatus.active, loadStreamUrl, uavId])
+  }, [autoPlay, videoStatus.active, uavId])
 
   useEffect(() => {
-    if (videoStatus.active && streamUrl && videoRef.current) {
-      if (videoRef.current.src !== streamUrl) {
-        videoRef.current.src = streamUrl
+    return () => {
+      if (decoderRef.current) {
+        decoderRef.current.destroy()
+        decoderRef.current = null
       }
-      videoRef.current.play().catch(() => {
-        setIsPlaying(false)
-      })
-    } else if (!videoStatus.active && videoRef.current) {
-      videoRef.current.pause()
-      setIsPlaying(false)
     }
-  }, [videoStatus.active, streamUrl])
+  }, [])
 
   const handleVideoPlay = () => setIsPlaying(true)
   const handleVideoPause = () => setIsPlaying(false)
@@ -244,28 +586,8 @@ const VideoStreamPlayer: React.FC<VideoStreamPlayerProps> = ({
     setError('视频播放错误，正在重试...')
     loadAttemptsRef.current += 1
     if (loadAttemptsRef.current < 3) {
-      setTimeout(loadStreamUrl, 2000)
+      setTimeout(handleReload, 2000)
     }
-  }
-
-  const handleStart = async () => {
-    onStart?.()
-    await loadStreamUrl()
-  }
-
-  const handleStop = () => {
-    if (videoRef.current) {
-      videoRef.current.pause()
-      videoRef.current.removeAttribute('src')
-      videoRef.current.load()
-    }
-    setIsPlaying(false)
-    onStop?.()
-  }
-
-  const handleReload = async () => {
-    handleStop()
-    setTimeout(handleStart, 500)
   }
 
   const dimensions = getResolutionDimensions(videoConfig.resolution)
@@ -273,8 +595,14 @@ const VideoStreamPlayer: React.FC<VideoStreamPlayerProps> = ({
     ? Math.min(100, (videoStatus.current_bitrate_kbps / videoStatus.target_bitrate_kbps) * 100)
     : 0
 
-  const frameDropRate = videoStatus.frames_decoded > 0
-    ? (videoStatus.frames_dropped / videoStatus.frames_decoded) * 100
+  const effectiveLatency = isWasmMode ? videoStatus.latency_ms : realtimeStats.latency_ms
+  const effectiveJitter = isWasmMode ? videoStatus.jitter_ms : realtimeStats.jitter_ms
+  const effectivePacketLoss = isWasmMode ? videoStatus.packet_loss : realtimeStats.packet_loss
+  const effectiveFramesDecoded = isWasmMode ? videoStatus.frames_decoded : realtimeStats.frames_decoded
+  const effectiveFramesDropped = isWasmMode ? videoStatus.frames_dropped : realtimeStats.frames_dropped
+
+  const frameDropRate = effectiveFramesDecoded > 0
+    ? (effectiveFramesDropped / effectiveFramesDecoded) * 100
     : 0
 
   return (
@@ -291,7 +619,9 @@ const VideoStreamPlayer: React.FC<VideoStreamPlayerProps> = ({
           onPlay={handleVideoPlay}
           onPause={handleVideoPause}
           onError={handleVideoError}
+          style={isWasmMode ? { display: 'none' } : undefined}
         />
+        <CanvasElement ref={canvasRef} $visible={isWasmMode} />
 
         <TopBar>
           <Space size={8}>
@@ -307,6 +637,11 @@ const VideoStreamPlayer: React.FC<VideoStreamPlayerProps> = ({
             <StatusTag color={videoConfig.adaptive_enabled ? 'green' : 'default'} $active>
               {videoConfig.adaptive_enabled ? '画质自适应' : '固定画质'}
             </StatusTag>
+            {isWasmMode && (
+              <StatusTag color="orange" $active>
+                WASM 解码
+              </StatusTag>
+            )}
           </Space>
           <Space size={8}>
             {showControls && (
@@ -358,8 +693,8 @@ const VideoStreamPlayer: React.FC<VideoStreamPlayerProps> = ({
                 <span>{videoStatus.current_bitrate_kbps.toFixed(0)} / {videoStatus.target_bitrate_kbps} kbps</span>
               </MetricItem>
               <MetricItem>
-                <ClockCircleOutlined style={{ color: videoStatus.latency_ms < 100 ? '#52c41a' : videoStatus.latency_ms < 200 ? '#faad14' : '#ff4d4f' }} />
-                <span>延迟 {videoStatus.latency_ms}ms</span>
+                <ClockCircleOutlined style={{ color: effectiveLatency < 100 ? '#52c41a' : effectiveLatency < 200 ? '#faad14' : '#ff4d4f' }} />
+                <span>延迟 {effectiveLatency}ms</span>
               </MetricItem>
             </MetricGroup>
             <MetricGroup>
@@ -369,8 +704,8 @@ const VideoStreamPlayer: React.FC<VideoStreamPlayerProps> = ({
               </MetricItem>
               <MetricItem>
                 <Badge
-                  status={videoStatus.packet_loss < 1 ? 'success' : videoStatus.packet_loss < 5 ? 'warning' : 'error'}
-                  text={`丢包 ${videoStatus.packet_loss.toFixed(2)}%`}
+                  status={effectivePacketLoss < 1 ? 'success' : effectivePacketLoss < 5 ? 'warning' : 'error'}
+                  text={`丢包 ${effectivePacketLoss.toFixed(2)}%`}
                 />
               </MetricItem>
             </MetricGroup>

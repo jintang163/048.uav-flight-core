@@ -9,6 +9,7 @@ const (
 	TopicFlightStatus      = "flight_status"
 	TopicMissionUpdate     = "mission_update"
 	TopicGeofenceViolation = "geofence_violation"
+	TopicLinkStatus        = "link_status"
 	TopicBlackboxUpload    = "blackbox_upload"
 	TopicOTAUpdate         = "ota_update"
 
@@ -18,6 +19,7 @@ const (
 	ChannelDataPersister      = "data_persister"
 	ChannelNotifierSMS        = "notifier_sms"
 	ChannelNotifierEmail      = "notifier_email"
+	ChannelLinkHealthHandler  = "link_health_handler"
 )
 
 type NSQConfig struct {

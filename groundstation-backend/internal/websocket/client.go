@@ -3,6 +3,8 @@ package websocket
 import (
 	"encoding/json"
 	"groundstation-backend/internal/middleware"
+	"groundstation-backend/internal/models"
+	"groundstation-backend/internal/service"
 	"groundstation-backend/pkg/utils"
 	"net/http"
 	"strconv"
@@ -291,6 +293,237 @@ func (c *Client) handleMessage(rawMessage []byte) {
 			c.hub.UnsubscribeFormation(c, formationPayload.FormationID)
 			c.hub.SendToClient(c, "unsubscribed_formation", gin.H{"formation_id": formationPayload.FormationID})
 		}
+
+	case "cockpit_start_session":
+		cockpitService := service.NewRemoteCockpitService()
+		session, err := cockpitService.StartSession(uavID, c.userID)
+		if err != nil {
+			c.hub.SendToClient(c, "error", "启动驾驶舱会话失败: "+err.Error())
+			return
+		}
+		c.hub.SendToClient(c, "cockpit_session_started", session)
+
+	case "cockpit_end_session":
+		cockpitService := service.NewRemoteCockpitService()
+		session, err := cockpitService.EndSession(uavID)
+		if err != nil {
+			c.hub.SendToClient(c, "error", "结束驾驶舱会话失败: "+err.Error())
+			return
+		}
+		c.hub.SendToClient(c, "cockpit_session_ended", session)
+
+	case "cockpit_start_video":
+		cockpitService := service.NewRemoteCockpitService()
+		var videoReq struct {
+			Codec            string `json:"codec"`
+			Resolution       string `json:"resolution"`
+			BitrateKbps      int    `json:"bitrate_kbps"`
+			FPS              int    `json:"fps"`
+			AdaptiveEnabled  *bool  `json:"adaptive_enabled"`
+		}
+		if len(rawData) > 0 {
+			json.Unmarshal(rawData, &videoReq)
+		}
+		config := &service.VideoStreamConfig{
+			Codec:           models.VideoCodecH265,
+			Resolution:      models.VideoRes720P,
+			BitrateKbps:     4000,
+			FPS:             30,
+			AdaptiveEnabled: true,
+		}
+		if videoReq.Codec != "" {
+			config.Codec = models.VideoCodec(videoReq.Codec)
+		}
+		if videoReq.Resolution != "" {
+			config.Resolution = models.VideoResolution(videoReq.Resolution)
+		}
+		if videoReq.BitrateKbps > 0 {
+			config.BitrateKbps = videoReq.BitrateKbps
+		}
+		if videoReq.FPS > 0 {
+			config.FPS = videoReq.FPS
+		}
+		if videoReq.AdaptiveEnabled != nil {
+			config.AdaptiveEnabled = *videoReq.AdaptiveEnabled
+		}
+		stream, err := cockpitService.StartVideoStream(uavID, config)
+		if err != nil {
+			c.hub.SendToClient(c, "error", "启动视频流失败: "+err.Error())
+			return
+		}
+		c.hub.SendToClient(c, "video_stream_status", stream)
+
+	case "cockpit_stop_video":
+		cockpitService := service.NewRemoteCockpitService()
+		if err := cockpitService.StopVideoStream(uavID); err != nil {
+			c.hub.SendToClient(c, "error", "停止视频流失败: "+err.Error())
+			return
+		}
+		c.hub.SendToClient(c, "video_stream_disconnected", gin.H{"uav_id": uavID, "active": false})
+
+	case "cockpit_adjust_quality":
+		cockpitService := service.NewRemoteCockpitService()
+		var qualityReq struct {
+			BitrateKbps *int   `json:"bitrate_kbps"`
+			Resolution  string `json:"resolution"`
+		}
+		if len(rawData) > 0 {
+			if err := json.Unmarshal(rawData, &qualityReq); err != nil {
+				c.hub.SendToClient(c, "error", "无效的画质调整参数: "+err.Error())
+				return
+			}
+		}
+		var resolution *models.VideoResolution
+		if qualityReq.Resolution != "" {
+			r := models.VideoResolution(qualityReq.Resolution)
+			resolution = &r
+		}
+		stream, err := cockpitService.AdjustVideoQuality(uavID, qualityReq.BitrateKbps, resolution)
+		if err != nil {
+			c.hub.SendToClient(c, "error", "调整画质失败: "+err.Error())
+			return
+		}
+		c.hub.SendToClient(c, "video_quality_adjusted", stream)
+
+	case "cockpit_set_primary_link":
+		cockpitService := service.NewRemoteCockpitService()
+		var linkReq struct {
+			LinkType models.LinkType `json:"link_type"`
+		}
+		if len(rawData) > 0 {
+			if err := json.Unmarshal(rawData, &linkReq); err != nil {
+				c.hub.SendToClient(c, "error", "无效的链路参数: "+err.Error())
+				return
+			}
+		}
+		status, err := cockpitService.SetPrimaryLink(uavID, linkReq.LinkType)
+		if err != nil {
+			c.hub.SendToClient(c, "error", "切换主链路失败: "+err.Error())
+			return
+		}
+		c.hub.SendToClient(c, "cockpit_link_status", status)
+
+	case "cockpit_set_failover":
+		cockpitService := service.NewRemoteCockpitService()
+		var failoverReq struct {
+			Enabled bool `json:"enabled"`
+		}
+		if len(rawData) > 0 {
+			json.Unmarshal(rawData, &failoverReq)
+		}
+		status, err := cockpitService.SetFailoverEnabled(uavID, failoverReq.Enabled)
+		if err != nil {
+			c.hub.SendToClient(c, "error", "设置链路故障切换失败: "+err.Error())
+			return
+		}
+		c.hub.SendToClient(c, "cockpit_link_status", status)
+
+	case "cockpit_set_auto_mission_fallback":
+		cockpitService := service.NewRemoteCockpitService()
+		var fallbackReq struct {
+			Enabled bool `json:"enabled"`
+		}
+		if len(rawData) > 0 {
+			json.Unmarshal(rawData, &fallbackReq)
+		}
+		if err := cockpitService.SetAutoMissionFallback(uavID, fallbackReq.Enabled); err != nil {
+			c.hub.SendToClient(c, "error", "设置自动航线回退失败: "+err.Error())
+			return
+		}
+		c.hub.SendToClient(c, "cockpit_auto_mission_fallback_updated", gin.H{"enabled": fallbackReq.Enabled})
+
+	case "cockpit_switch_uav":
+		cockpitService := service.NewRemoteCockpitService()
+		var switchReq struct {
+			FromUAVID uint64 `json:"from_uav_id"`
+			ToUAVID   uint64 `json:"to_uav_id"`
+		}
+		if len(rawData) > 0 {
+			if err := json.Unmarshal(rawData, &switchReq); err != nil {
+				c.hub.SendToClient(c, "error", "无效的切换参数: "+err.Error())
+				return
+			}
+		}
+		if switchReq.ToUAVID == 0 {
+			switchReq.ToUAVID = uavID
+		}
+		if err := cockpitService.SwitchUAV(switchReq.FromUAVID, switchReq.ToUAVID, c.userID); err != nil {
+			c.hub.SendToClient(c, "error", "切换无人机失败: "+err.Error())
+			return
+		}
+		BroadcastCockpitUAVSwitched(switchReq.FromUAVID, switchReq.ToUAVID, c.userID)
+		c.hub.SendToClient(c, "cockpit_uav_switched", gin.H{
+			"from_uav_id": switchReq.FromUAVID,
+			"to_uav_id":   switchReq.ToUAVID,
+		})
+
+	case "cockpit_send_control":
+		cockpitService := service.NewRemoteCockpitService()
+		var ctrlReq struct {
+			Pitch    float64 `json:"pitch"`
+			Roll     float64 `json:"roll"`
+			Yaw      float64 `json:"yaw"`
+			Throttle float64 `json:"throttle"`
+			Source   string  `json:"source"`
+		}
+		if len(rawData) > 0 {
+			if err := json.Unmarshal(rawData, &ctrlReq); err != nil {
+				c.hub.SendToClient(c, "error", "无效的控制参数: "+err.Error())
+				return
+			}
+		}
+		source := ctrlReq.Source
+		if source == "" {
+			source = "gamepad"
+		}
+		if err := cockpitService.SendFlightControl(uavID, c.userID, ctrlReq.Pitch, ctrlReq.Roll, ctrlReq.Yaw, ctrlReq.Throttle, source); err != nil {
+			c.hub.SendToClient(c, "error", "发送控制指令失败: "+err.Error())
+			return
+		}
+		c.hub.SendToClient(c, "cockpit_control_ack", gin.H{"success": true})
+
+	case "cockpit_trigger_fallback":
+		cockpitService := service.NewRemoteCockpitService()
+		var fallbackReq struct {
+			Reason string `json:"reason"`
+		}
+		if len(rawData) > 0 {
+			json.Unmarshal(rawData, &fallbackReq)
+		}
+		reason := fallbackReq.Reason
+		if reason == "" {
+			reason = "手动触发"
+		}
+		if err := cockpitService.TriggerAutoMissionFallback(uavID, reason); err != nil {
+			c.hub.SendToClient(c, "error", "触发航线回退失败: "+err.Error())
+			return
+		}
+		c.hub.SendToClient(c, "auto_mission_fallback_triggered", gin.H{"uav_id": uavID, "reason": reason})
+
+	case "cockpit_network_metrics":
+		cockpitService := service.NewRemoteCockpitService()
+		var metrics struct {
+			BandwidthKbps  float64 `json:"bandwidth_estimate_kbps"`
+			RTTms          int     `json:"rtt_ms"`
+			PacketLoss     float64 `json:"packet_loss"`
+			JitterMs       int     `json:"jitter_ms"`
+			ThroughputKbps float64 `json:"throughput_kbps"`
+			Timestamp      int64   `json:"timestamp"`
+		}
+		if len(rawData) > 0 {
+			json.Unmarshal(rawData, &metrics)
+		}
+		if metrics.Timestamp == 0 {
+			metrics.Timestamp = time.Now().UnixMilli()
+		}
+		_ = cockpitService.LogNetworkMetrics(uavID, &service.NetworkMetrics{
+			BandwidthKbps:  metrics.BandwidthKbps,
+			RTTms:          metrics.RTTms,
+			PacketLoss:     metrics.PacketLoss,
+			JitterMs:       metrics.JitterMs,
+			ThroughputKbps: metrics.ThroughputKbps,
+			Timestamp:      metrics.Timestamp,
+		})
 
 	default:
 		c.hub.SendToClient(c, "error", "未知的消息类型: "+msgType)

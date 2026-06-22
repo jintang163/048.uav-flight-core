@@ -8,17 +8,19 @@ import (
 )
 
 type Config struct {
-	Server     ServerConfig     `mapstructure:"server"`
-	Database   DatabaseConfig   `mapstructure:"database"`
-	Redis      RedisConfig      `mapstructure:"redis"`
-	NSQ        NSQConfig        `mapstructure:"nsq"`
-	JWT        JWTConfig        `mapstructure:"jwt"`
-	MAVLink    MAVLinkConfig    `mapstructure:"mavlink"`
-	WebSocket  WebSocketConfig  `mapstructure:"websocket"`
-	MinIO      MinIOConfig      `mapstructure:"minio"`
-	Alert      AlertConfig      `mapstructure:"alert"`
-	YOLOv8API  string           `mapstructure:"yolov8_api"`
-	YOLOv8APIKey string        `mapstructure:"yolov8_api_key"`
+	Server          ServerConfig     `mapstructure:"server"`
+	Database        DatabaseConfig   `mapstructure:"database"`
+	Redis           RedisConfig      `mapstructure:"redis"`
+	NSQ             NSQConfig        `mapstructure:"nsq"`
+	JWT             JWTConfig        `mapstructure:"jwt"`
+	MAVLink         MAVLinkConfig    `mapstructure:"mavlink"`
+	WebSocket       WebSocketConfig  `mapstructure:"websocket"`
+	MinIO           MinIOConfig      `mapstructure:"minio"`
+	Alert           AlertConfig      `mapstructure:"alert"`
+	WebRTC          WebRTCConfig     `mapstructure:"webrtc"`
+	YOLOv8API       string           `mapstructure:"yolov8_api"`
+	YOLOv8APIKey    string           `mapstructure:"yolov8_api_key"`
+	ExternalServices map[string]string `mapstructure:"external_services"`
 }
 
 type ServerConfig struct {
@@ -86,6 +88,13 @@ type AlertConfig struct {
 	EmailPassword   string `mapstructure:"email_password"`
 	LowBatteryThreshold float64 `mapstructure:"low_battery_threshold"`
 	SignalLossThreshold int `mapstructure:"signal_loss_threshold"`
+}
+
+type WebRTCConfig struct {
+	MediaServerHost string `mapstructure:"media_server_host"`
+	MediaServerPort int    `mapstructure:"media_server_port"`
+	WHIPEndpoint    string `mapstructure:"whip_endpoint"`
+	WHEPEndpoint    string `mapstructure:"whep_endpoint"`
 }
 
 var AppConfig *Config

@@ -1,4 +1,4 @@
-import { get, post } from './http'
+import { get, post, del } from './http'
 import type {
   CockpitSession,
   VideoStreamConfig,
@@ -17,15 +17,15 @@ export interface CockpitSessionListResponse {
 }
 
 export const startCockpitSession = (uavId: string, pilotId?: string): Promise<CockpitSession> => {
-  return post<CockpitSession>('/remote-cockpit/session/start', { uav_id: uavId, pilot_id: pilotId })
+  return post<CockpitSession>('/remote-cockpit/sessions', { uav_id: uavId, pilot_id: pilotId })
 }
 
 export const endCockpitSession = (uavId: string): Promise<CockpitSession> => {
-  return post<CockpitSession>('/remote-cockpit/session/end', { uav_id: uavId })
+  return del<CockpitSession>(`/remote-cockpit/sessions/${uavId}`)
 }
 
-export const getCockpitSession = (sessionId: string): Promise<CockpitSession> => {
-  return get<CockpitSession>(`/remote-cockpit/session/${sessionId}`)
+export const getCockpitSession = (uavId: string): Promise<CockpitSession> => {
+  return get<CockpitSession>(`/remote-cockpit/sessions/${uavId}`)
 }
 
 export const getCockpitSessionList = (params?: {
@@ -40,15 +40,15 @@ export const getCockpitSessionList = (params?: {
 }
 
 export const startVideoStream = (uavId: string, config?: Partial<VideoStreamConfig>): Promise<VideoStreamStatus> => {
-  return post<VideoStreamStatus>('/remote-cockpit/video/start', { uav_id: uavId, config })
+  return post<VideoStreamStatus>(`/remote-cockpit/video/${uavId}/start`, config)
 }
 
 export const stopVideoStream = (uavId: string): Promise<{ success: boolean }> => {
-  return post<{ success: boolean }>('/remote-cockpit/video/stop', { uav_id: uavId })
+  return post<{ success: boolean }>(`/remote-cockpit/video/${uavId}/stop`)
 }
 
 export const getVideoStreamStatus = (uavId: string): Promise<VideoStreamStatus> => {
-  return get<VideoStreamStatus>(`/remote-cockpit/video/status/${uavId}`)
+  return get<VideoStreamStatus>(`/remote-cockpit/video/${uavId}`)
 }
 
 export const adjustVideoQuality = (
@@ -56,8 +56,7 @@ export const adjustVideoQuality = (
   bitrateKbps?: number,
   resolution?: string
 ): Promise<VideoStreamConfig> => {
-  return post<VideoStreamConfig>('/remote-cockpit/video/adjust-quality', {
-    uav_id: uavId,
+  return post<VideoStreamConfig>(`/remote-cockpit/video/${uavId}/quality`, {
     bitrate_kbps: bitrateKbps,
     resolution
   })
@@ -68,7 +67,7 @@ export const setAdaptiveQuality = (uavId: string, enabled: boolean): Promise<{ s
 }
 
 export const getNetworkMetrics = (uavId: string): Promise<NetworkMetrics> => {
-  return get<NetworkMetrics>(`/remote-cockpit/network/metrics/${uavId}`)
+  return get<NetworkMetrics>(`/remote-cockpit/metrics/${uavId}/network`)
 }
 
 export const getNetworkMetricsHistory = (
@@ -79,19 +78,19 @@ export const getNetworkMetricsHistory = (
 }
 
 export const getCockpitLinkStatus = (uavId: string): Promise<CockpitLinkStatus> => {
-  return get<CockpitLinkStatus>(`/remote-cockpit/link/status/${uavId}`)
+  return get<CockpitLinkStatus>(`/remote-cockpit/link/${uavId}`)
 }
 
 export const setLinkFailover = (uavId: string, enabled: boolean): Promise<{ success: boolean }> => {
-  return post<{ success: boolean }>('/remote-cockpit/link/failover', { uav_id: uavId, enabled })
+  return post<{ success: boolean }>(`/remote-cockpit/link/${uavId}/failover`, { enabled })
 }
 
 export const setPrimaryLink = (uavId: string, linkType: LinkType): Promise<CockpitLinkStatus> => {
-  return post<CockpitLinkStatus>('/remote-cockpit/link/primary', { uav_id: uavId, link_type: linkType })
+  return post<CockpitLinkStatus>(`/remote-cockpit/link/${uavId}/primary`, { link_type: linkType })
 }
 
 export const setAutoMissionFallback = (uavId: string, enabled: boolean): Promise<{ success: boolean }> => {
-  return post<{ success: boolean }>('/remote-cockpit/fallback/mission', { uav_id: uavId, enabled })
+  return post<{ success: boolean }>(`/remote-cockpit/link/${uavId}/fallback`, { enabled })
 }
 
 export const sendFlightControlCommand = (
@@ -102,8 +101,7 @@ export const sendFlightControlCommand = (
   throttle: number,
   source: 'keyboard' | 'gamepad' | 'autopilot' = 'gamepad'
 ): Promise<FlightControlCommand> => {
-  return post<FlightControlCommand>('/remote-cockpit/control/command', {
-    uav_id: uavId,
+  return post<FlightControlCommand>(`/remote-cockpit/control/${uavId}`, {
     pitch,
     roll,
     yaw,
@@ -114,16 +112,20 @@ export const sendFlightControlCommand = (
 }
 
 export const getAvailableCockpitUAVs = (): Promise<{ uav_ids: string[] }> => {
-  return get<{ uav_ids: string[] }>('/remote-cockpit/available-uavs')
+  return get<{ uav_ids: string[] }>('/remote-cockpit/uavs')
 }
 
 export const switchCockpitUAV = (fromUavId: string, toUavId: string): Promise<{ success: boolean; uav_id: string }> => {
-  return post<{ success: boolean; uav_id: string }>('/remote-cockpit/switch-uav', {
+  return post<{ success: boolean; uav_id: string }>('/remote-cockpit/switch', {
     from_uav_id: fromUavId,
     to_uav_id: toUavId
   })
 }
 
 export const getVideoStreamUrl = (uavId: string, protocol: 'webrtc' | 'hls' | 'ws' = 'webrtc'): Promise<{ url: string; protocol: string }> => {
-  return get<{ url: string; protocol: string }>(`/remote-cockpit/video/stream-url/${uavId}`, { protocol })
+  return get<{ url: string; protocol: string }>(`/remote-cockpit/video/${uavId}/url`, { protocol })
+}
+
+export const triggerMissionFallback = (uavId: string, reason: string): Promise<{ message: string; reason: string }> => {
+  return post<{ message: string; reason: string }>(`/remote-cockpit/link/${uavId}/fallback/trigger`, { reason })
 }

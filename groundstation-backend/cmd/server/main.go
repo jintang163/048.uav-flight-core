@@ -22,6 +22,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 )
 
@@ -30,6 +31,12 @@ func main() {
 	if configPath == "" {
 		configPath = "config/config.yaml"
 	}
+
+	viper.SetDefault("webrtc.media_server_host", "127.0.0.1")
+	viper.SetDefault("webrtc.media_server_port", 8888)
+	viper.SetDefault("webrtc.whip_endpoint", "/whip")
+	viper.SetDefault("webrtc.whep_endpoint", "/whep")
+
 	if _, err := config.LoadConfig(configPath); err != nil {
 		fmt.Printf("Failed to load config: %v\n", err)
 		os.Exit(1)
@@ -92,6 +99,11 @@ func main() {
 		&models.ThrustCurvePoint{},
 		&models.PIDGainProfile{},
 		&models.ThrustLearningSample{},
+		&models.CockpitSession{},
+		&models.VideoStreamSession{},
+		&models.CockpitLinkSnapshot{},
+		&models.NetworkMetricsLog{},
+		&models.FlightControlLog{},
 	); err != nil {
 		fmt.Printf("Failed to migrate database: %v\n", err)
 		os.Exit(1)
@@ -499,6 +511,35 @@ func main() {
 			thrustLearning.POST("/pid/apply/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ApplyAutoTunedPID)
 			thrustLearning.GET("/samples/:uav_id", handler.GetThrustLearningSamples)
 			thrustLearning.POST("/optimize/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.OptimizeThrustModel)
+		}
+
+		cockpit := api.Group("/remote-cockpit", middleware.JWTAuth())
+		{
+			cockpit.POST("/sessions", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StartCockpitSession)
+			cockpit.DELETE("/sessions/:uavId", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.EndCockpitSession)
+			cockpit.GET("/sessions/:uavId", handler.GetCockpitSession)
+			cockpit.GET("/uavs", handler.GetAvailableCockpitUAVs)
+			cockpit.POST("/switch", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SwitchCockpitUAV)
+
+			cockpit.POST("/video/:uavId/start", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StartCockpitVideoStream)
+			cockpit.POST("/video/:uavId/stop", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StopCockpitVideoStream)
+			cockpit.GET("/video/:uavId", handler.GetCockpitVideoStream)
+			cockpit.POST("/video/:uavId/quality", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.AdjustCockpitVideoQuality)
+			cockpit.GET("/video/:uavId/url", handler.GetCockpitStreamURL)
+
+			cockpit.GET("/link/:uavId", handler.GetCockpitLinkStatus)
+			cockpit.POST("/link/:uavId/primary", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SetCockpitPrimaryLink)
+			cockpit.POST("/link/:uavId/failover", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SetCockpitFailoverEnabled)
+			cockpit.POST("/link/:uavId/fallback", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SetCockpitAutoMissionFallback)
+			cockpit.POST("/link/:uavId/fallback/trigger", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.TriggerCockpitAutoMissionFallback)
+
+			cockpit.POST("/control/:uavId", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SendCockpitFlightControl)
+
+			cockpit.GET("/metrics/:uavId/network", handler.GetCockpitNetworkMetrics)
+			cockpit.GET("/metrics/:uavId/control-logs", handler.GetCockpitFlightControlLogs)
+
+			cockpit.POST("/video/:uavId/sdp", handler.HandleCockpitSDPOffer)
+			cockpit.GET("/video/:uavId/webrtc-stats", handler.GetCockpitWebRTCStats)
 		}
 	}
 

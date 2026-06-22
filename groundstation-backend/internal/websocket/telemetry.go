@@ -293,3 +293,47 @@ func BroadcastPIDGainsUpdate(uavID uint64, data interface{}) {
 func BroadcastThrustLearningSample(uavID uint64, data interface{}) {
 	telemetryHub.BroadcastThrustLearningSample(uavID, data)
 }
+
+func BroadcastRemoteCockpitSession(uavID uint64, data interface{}) {
+	telemetryHub.BroadcastRemoteCockpitSession(uavID, data)
+}
+
+func BroadcastRemoteCockpitSessionEnd(uavID uint64, sessionID string) {
+	telemetryHub.BroadcastRemoteCockpitSessionEnd(uavID, sessionID)
+}
+
+func BroadcastRemoteCockpitMode(uavID uint64, mode string) {
+	telemetryHub.BroadcastRemoteCockpitMode(uavID, mode)
+}
+
+func BroadcastVideoStreamStatus(uavID uint64, data interface{}) {
+	telemetryHub.BroadcastVideoStreamStatus(uavID, data)
+}
+
+func BroadcastVideoStreamDisconnected(uavID uint64) {
+	telemetryHub.BroadcastVideoStreamDisconnected(uavID)
+}
+
+func BroadcastVideoQualityAdjusted(uavID uint64, data interface{}) {
+	telemetryHub.BroadcastVideoQualityAdjusted(uavID, data)
+}
+
+func BroadcastRemoteCockpitLinkStatus(uavID uint64, data interface{}) {
+	telemetryHub.BroadcastRemoteCockpitLinkStatus(uavID, data)
+}
+
+func BroadcastCockpitLinkFailover(uavID uint64, fromLink, toLink string) {
+	telemetryHub.BroadcastCockpitLinkFailover(uavID, fromLink, toLink)
+}
+
+func BroadcastAutoMissionFallback(uavID uint64, reason string) {
+	telemetryHub.BroadcastAutoMissionFallback(uavID, reason)
+}
+
+func BroadcastCockpitUAVSwitched(fromUAVID, toUAVID uint64, pilotID uint64) {
+	telemetryHub.BroadcastCockpitUAVSwitched(fromUAVID, toUAVID, pilotID)
+}
+
+func BroadcastWebRTCStats(uavID uint64, data interface{}) {
+	telemetryHub.BroadcastWebRTCStats(uavID, data)
+}
