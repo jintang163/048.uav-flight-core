@@ -16,11 +16,12 @@ import (
 )
 
 type ConsumerManager struct {
-	consumers      map[string]*nsq.Consumer
-	alertService   *service.AlertService
-	flightService  *service.FlightService
-	missionService *service.MissionService
-	weatherService *service.WeatherService
+	consumers           map[string]*nsq.Consumer
+	alertService        *service.AlertService
+	flightService       *service.FlightService
+	missionService      *service.MissionService
+	weatherService      *service.WeatherService
+	collisionService    *service.CollisionAvoidanceService
 }
 
 var consumerManager *ConsumerManager
@@ -29,11 +30,12 @@ var consumerOnce sync.Once
 func NewConsumerManager() *ConsumerManager {
 	consumerOnce.Do(func() {
 		consumerManager = &ConsumerManager{
-			consumers:      make(map[string]*nsq.Consumer),
-			alertService:   service.NewAlertService(),
-			flightService:  service.NewFlightService(),
-			missionService: service.NewMissionService(),
-			weatherService: service.NewWeatherService(),
+			consumers:        make(map[string]*nsq.Consumer),
+			alertService:     service.NewAlertService(),
+			flightService:    service.NewFlightService(),
+			missionService:   service.NewMissionService(),
+			weatherService:   service.NewWeatherService(),
+			collisionService: service.NewCollisionAvoidanceService(),
 		}
 	})
 	return consumerManager
@@ -56,6 +58,9 @@ func (cm *ConsumerManager) StartConsumers() error {
 		return err
 	}
 	if err := cm.startWeatherSensorConsumer(); err != nil {
+		return err
+	}
+	if err := cm.startCollisionAvoidanceConsumer(); err != nil {
 		return err
 	}
 	return nil
@@ -263,5 +268,34 @@ func (cm *ConsumerManager) startWeatherSensorConsumer() error {
 
 	cm.consumers[TopicWeatherSensor] = consumer
 	middleware.Logger.Info("NSQ consumer started", zap.String("topic", TopicWeatherSensor))
+	return nil
+}
+
+func (cm *ConsumerManager) startCollisionAvoidanceConsumer() error {
+	cfg := config.AppConfig.NSQ
+	nsqConfig := nsq.NewConfig()
+
+	consumer, err := nsq.NewConsumer(TopicPositionUpdate, ChannelCollisionAvoidance, nsqConfig)
+	if err != nil {
+		return err
+	}
+
+	consumer.AddHandler(nsq.HandlerFunc(func(message *nsq.Message) error {
+		var pos models.UAVLivePosition
+		if err := json.Unmarshal(message.Body, &pos); err != nil {
+			return nil
+		}
+
+		cm.collisionService.ReportPosition(&pos)
+		return nil
+	}))
+
+	err = consumer.ConnectToNSQLookupds(cfg.LookupdAddresses)
+	if err != nil {
+		return err
+	}
+
+	cm.consumers[TopicPositionUpdate] = consumer
+	middleware.Logger.Info("NSQ consumer started", zap.String("topic", TopicPositionUpdate))
 	return nil
 }

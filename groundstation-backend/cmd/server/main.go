@@ -107,6 +107,8 @@ func main() {
 		&models.WeatherData{},
 		&models.FlightWeatherLog{},
 		&models.WeatherAlertEvent{},
+		&models.CollisionAlert{},
+		&models.RouteIntersection{},
 	); err != nil {
 		fmt.Printf("Failed to migrate database: %v\n", err)
 		os.Exit(1)
@@ -558,6 +560,21 @@ func main() {
 			weather.GET("/thresholds", handler.GetWeatherThresholds)
 			weather.PUT("/thresholds", middleware.RoleAuth(models.UserRoleAdmin), handler.UpdateWeatherThresholds)
 			weather.GET("/flight/:flight_id", handler.GetFlightWeatherLog)
+		}
+
+		collision := api.Group("/collision", middleware.JWTAuth())
+		{
+			collision.GET("/status", handler.GetCollisionAvoidanceStatus)
+			collision.PUT("/enabled", middleware.RoleAuth(models.UserRoleAdmin), handler.ToggleCollisionAvoidance)
+			collision.GET("/alerts/active", handler.GetActiveCollisionAlerts)
+			collision.GET("/alerts", handler.ListCollisionAlerts)
+			collision.POST("/alerts/:id/resolve", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ResolveCollisionAlert)
+			collision.GET("/positions", handler.GetAllUAVPositions)
+			collision.GET("/intersections", handler.GetRouteIntersections)
+			collision.POST("/intersections/detect", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.DetectRouteIntersections)
+			collision.POST("/manual", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ManualCollisionAvoidance)
+			collision.GET("/uav/:uav_id/speed-factor", handler.GetUAVSpeedFactor)
+			collision.GET("/stats", handler.GetCollisionStats)
 		}
 	}
 

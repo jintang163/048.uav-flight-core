@@ -12,6 +12,7 @@ import { useUAV } from '@/hooks/useUAV'
 import { requestNotificationPermission, initAudioContext } from '@/utils'
 import { useWeatherAlert } from '@/hooks/useWeatherAlert'
 import WeatherAlertModal from '@/components/WeatherAlertModal'
+import CollisionAlertModal from '@/components/CollisionAlertModal'
 
 const darkTheme = {
   token: {
@@ -138,6 +139,7 @@ const AppContent: React.FC = () => {
       <AntdApp>
         <Router />
         <WeatherAlertModal />
+        <CollisionAlertModal />
       </AntdApp>
     </ConfigProvider>
   )

@@ -13,6 +13,7 @@ const (
 	TopicBlackboxUpload    = "blackbox_upload"
 	TopicOTAUpdate         = "ota_update"
 	TopicWeatherSensor     = "weather_sensor"
+	TopicPositionUpdate    = "position_update"
 
 	ChannelTelemetryProcessor  = "telemetry_processor"
 	ChannelAlertNotifier       = "alert_notifier"
@@ -22,6 +23,7 @@ const (
 	ChannelNotifierEmail       = "notifier_email"
 	ChannelLinkHealthHandler   = "link_health_handler"
 	ChannelWeatherSensorHandler = "weather_sensor_handler"
+	ChannelCollisionAvoidance  = "collision_avoidance"
 )
 
 type NSQConfig struct {

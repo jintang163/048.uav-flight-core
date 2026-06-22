@@ -15,6 +15,7 @@ export * from './obstacle-avoidance'
 export * from './thrust-learning'
 export * from './remote-cockpit'
 export * from './weather'
+export * from './collision'
 
 export interface ApiResponse<T = unknown> {
   code: number

@@ -883,3 +883,29 @@ func (h *Hub) BroadcastWeatherAlert(uavID uint64, data interface{}) {
 
 	h.broadcast <- bytes
 }
+
+func (h *Hub) BroadcastCollisionAlert(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "collision_alert",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) Broadcast(data interface{}) {
+	bytes, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	h.broadcast <- bytes
+}
