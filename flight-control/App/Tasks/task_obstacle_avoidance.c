@@ -31,6 +31,23 @@ static uint16_t heatmap_count = 0;
 static uint16_t total_detections = 0;
 static uint16_t total_events = 0;
 
+static uint8_t bypass_phase = 0;
+static uint32_t phase_start_time = 0;
+static float hover_stable_alt = 0.0f;
+static float lateral_offset_lat = 0.0f;
+static float lateral_offset_lng = 0.0f;
+
+#define BYPASS_PHASE_HOVER       0
+#define BYPASS_PHASE_ASCEND      1
+#define BYPASS_PHASE_LATERAL     2
+#define BYPASS_PHASE_FORWARD     3
+#define BYPASS_PHASE_DESCEND     4
+#define BYPASS_PHASE_RESUME      5
+
+#define HOVER_STABILIZE_MS       500
+#define ASCEND_TOLERANCE_M       0.3f
+#define LATERAL_DISTANCE_M       5.0f
+
 static const float sensitivity_ranges[] = {
     OA_DETECTION_RANGE_FAR,
     OA_DETECTION_RANGE_MEDIUM,
@@ -230,22 +247,208 @@ static void execute_avoidance(void)
         case OA_STRATEGY_HOVER:
             execute_hover();
             active_event.status = OA_STATUS_AVOIDING;
+            bypass_phase = BYPASS_PHASE_HOVER;
             break;
 
         case OA_STRATEGY_ASCEND_BYPASS:
             active_event.status = OA_STATUS_BYPASSING;
-            execute_ascend_bypass(active_event.start_alt);
+            if (bypass_phase == BYPASS_PHASE_HOVER && phase_start_time == 0) {
+                phase_start_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+                execute_hover();
+            }
             break;
 
         case OA_STRATEGY_RETREAT_BYPASS:
             active_event.status = OA_STATUS_BYPASSING;
-            execute_retreat_bypass();
+            if (bypass_phase == BYPASS_PHASE_HOVER && phase_start_time == 0) {
+                phase_start_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+                execute_hover();
+            }
             break;
 
         default:
             execute_hover();
             active_event.status = OA_STATUS_AVOIDING;
             break;
+    }
+}
+
+static void run_ascend_bypass_fsm(void)
+{
+    PositionState pos;
+    sensor_manager_get_position(&pos);
+    float current_alt = pos.altitude;
+    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    float current_lat = pos.position.lat / 1e7f;
+    float current_lng = pos.position.lon / 1e7f;
+
+    switch (bypass_phase) {
+        case BYPASS_PHASE_HOVER: {
+            execute_hover();
+            if (now - phase_start_time >= HOVER_STABILIZE_MS) {
+                hover_stable_alt = current_alt;
+                bypass_phase = BYPASS_PHASE_ASCEND;
+                phase_start_time = now;
+
+                float target_alt = hover_stable_alt + config.ascend_height;
+                flight_controller_set_target_altitude(target_alt);
+
+                if (active_event.bypass_path_count < 16) {
+                    uint8_t idx = active_event.bypass_path_count;
+                    active_event.bypass_path[idx].lat = current_lat;
+                    active_event.bypass_path[idx].lng = current_lng;
+                    active_event.bypass_path[idx].alt = target_alt;
+                    active_event.bypass_path[idx].timestamp = now;
+                    active_event.bypass_path[idx].type = 1;
+                    active_event.bypass_path_count++;
+                }
+            }
+            break;
+        }
+
+        case BYPASS_PHASE_ASCEND: {
+            float target_alt = hover_stable_alt + config.ascend_height;
+            if (fabsf(current_alt - target_alt) < ASCEND_TOLERANCE_M) {
+                bypass_phase = BYPASS_PHASE_LATERAL;
+                phase_start_time = now;
+
+                float bypass_angle_rad = config.bypass_angle * DEG_TO_RAD;
+                float heading_rad = flight_controller_get_heading();
+
+                float lateral_angle = heading_rad + bypass_angle_rad;
+                float lateral_north = LATERAL_DISTANCE_M * cosf(lateral_angle);
+                float lateral_east = LATERAL_DISTANCE_M * sinf(lateral_angle);
+
+                lateral_offset_lat = current_lat + lateral_north / 111320.0f;
+                lateral_offset_lng = current_lng + lateral_east / (111320.0f * cosf(current_lat * DEG_TO_RAD));
+
+                flight_controller_goto_position(lateral_offset_lat, lateral_offset_lng, target_alt);
+
+                if (active_event.bypass_path_count < 16) {
+                    uint8_t idx = active_event.bypass_path_count;
+                    active_event.bypass_path[idx].lat = lateral_offset_lat;
+                    active_event.bypass_path[idx].lng = lateral_offset_lng;
+                    active_event.bypass_path[idx].alt = target_alt;
+                    active_event.bypass_path[idx].timestamp = now;
+                    active_event.bypass_path[idx].type = 1;
+                    active_event.bypass_path_count++;
+                }
+            } else {
+                flight_controller_set_target_altitude(target_alt);
+            }
+            break;
+        }
+
+        case BYPASS_PHASE_LATERAL: {
+            float dlat = (current_lat - lateral_offset_lat) * 111320.0f;
+            float dlng = (current_lng - lateral_offset_lng) * 111320.0f * cosf(current_lat * DEG_TO_RAD);
+            float dist_to_target = sqrtf(dlat * dlat + dlng * dlng);
+
+            if (dist_to_target < 1.0f) {
+                bypass_phase = BYPASS_PHASE_FORWARD;
+                phase_start_time = now;
+
+                float heading_rad = flight_controller_get_heading();
+                float forward_north = config.detection_range * cosf(heading_rad);
+                float forward_east = config.detection_range * sinf(heading_rad);
+
+                float forward_lat = current_lat + forward_north / 111320.0f;
+                float forward_lng = current_lng + forward_east / (111320.0f * cosf(current_lat * DEG_TO_RAD));
+
+                flight_controller_goto_position(forward_lat, forward_lng, current_alt);
+
+                if (active_event.bypass_path_count < 16) {
+                    uint8_t idx = active_event.bypass_path_count;
+                    active_event.bypass_path[idx].lat = forward_lat;
+                    active_event.bypass_path[idx].lng = forward_lng;
+                    active_event.bypass_path[idx].alt = current_alt;
+                    active_event.bypass_path[idx].timestamp = now;
+                    active_event.bypass_path[idx].type = 1;
+                    active_event.bypass_path_count++;
+                }
+            }
+            break;
+        }
+
+        case BYPASS_PHASE_FORWARD: {
+            bool obstacle_cleared = true;
+            for (uint8_t i = 0; i < detection_count; i++) {
+                if (current_detections[i].distance < config.detection_range * 0.5f) {
+                    obstacle_cleared = false;
+                    break;
+                }
+            }
+
+            if (obstacle_cleared) {
+                bypass_phase = BYPASS_PHASE_DESCEND;
+                phase_start_time = now;
+
+                flight_controller_set_target_altitude(hover_stable_alt);
+
+                if (active_event.bypass_path_count < 16) {
+                    uint8_t idx = active_event.bypass_path_count;
+                    active_event.bypass_path[idx].lat = current_lat;
+                    active_event.bypass_path[idx].lng = current_lng;
+                    active_event.bypass_path[idx].alt = hover_stable_alt;
+                    active_event.bypass_path[idx].timestamp = now;
+                    active_event.bypass_path[idx].type = 2;
+                    active_event.bypass_path_count++;
+                }
+            }
+            break;
+        }
+
+        case BYPASS_PHASE_DESCEND: {
+            if (fabsf(current_alt - hover_stable_alt) < ASCEND_TOLERANCE_M) {
+                bypass_phase = BYPASS_PHASE_RESUME;
+                phase_start_time = now;
+            }
+            break;
+        }
+
+        case BYPASS_PHASE_RESUME: {
+            FlightMode prev_mode = flight_controller_get_mode();
+            flight_controller_set_mode(FLIGHT_MODE_AUTO);
+            break;
+        }
+
+        default:
+            break;
+    }
+}
+
+static void run_retreat_bypass_fsm(void)
+{
+    PositionState pos;
+    sensor_manager_get_position(&pos);
+    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    float current_lat = pos.position.lat / 1e7f;
+    float current_lng = pos.position.lon / 1e7f;
+
+    switch (bypass_phase) {
+        case BYPASS_PHASE_HOVER: {
+            execute_hover();
+            if (now - phase_start_time >= HOVER_STABILIZE_MS) {
+                bypass_phase = BYPASS_PHASE_LATERAL;
+                phase_start_time = now;
+                execute_retreat_bypass();
+            }
+            break;
+        }
+
+        default: {
+            bool obstacle_cleared = true;
+            for (uint8_t i = 0; i < detection_count; i++) {
+                if (current_detections[i].distance < config.detection_range * 0.5f) {
+                    obstacle_cleared = false;
+                    break;
+                }
+            }
+            if (obstacle_cleared) {
+                flight_controller_set_mode(FLIGHT_MODE_AUTO);
+            }
+            break;
+        }
     }
 }
 
@@ -335,6 +538,8 @@ void task_obstacle_avoidance_main(void *argument)
         }
 
         if (active_event.status == OA_STATUS_TRIGGERED) {
+            bypass_phase = BYPASS_PHASE_HOVER;
+            phase_start_time = 0;
             execute_avoidance();
         }
 
@@ -343,9 +548,10 @@ void task_obstacle_avoidance_main(void *argument)
                 if (active_event.status == OA_STATUS_BYPASSING) {
                     switch (config.strategy) {
                         case OA_STRATEGY_ASCEND_BYPASS:
-                            execute_ascend_bypass(active_event.start_alt);
+                            run_ascend_bypass_fsm();
                             break;
                         case OA_STRATEGY_RETREAT_BYPASS:
+                            run_retreat_bypass_fsm();
                             break;
                         default:
                             break;

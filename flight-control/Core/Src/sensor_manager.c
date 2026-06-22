@@ -4,6 +4,8 @@
 #include "magnetometer.h"
 #include "barometer.h"
 #include "sbus_rc.h"
+#include "mmwave_radar.h"
+#include "stereo_vision.h"
 
 static SensorData sensor_data;
 
@@ -16,6 +18,8 @@ void sensor_manager_init(void)
     magnetometer_init();
     barometer_init();
     sbus_rc_init();
+    mmwave_init();
+    stereo_vision_init();
 
     sensor_data.imu_timestamp = HAL_GetTick();
     sensor_data.gps_timestamp = HAL_GetTick();
@@ -153,4 +157,61 @@ void sensor_manager_calibrate_accel(void)
 void sensor_manager_calibrate_mag(void)
 {
     magnetometer_calibrate();
+}
+
+void sensor_manager_get_position(PositionState *pos)
+{
+    if (pos != NULL) {
+        GPSPosition gps_pos;
+        GPSVelocity gps_vel;
+        sensor_manager_get_gps(&gps_pos, &gps_vel);
+
+        pos->position = gps_pos;
+        pos->velocity = gps_vel;
+        pos->altitude = (float)gps_pos.alt / 1000.0f;
+        pos->ground_speed = sqrtf(gps_vel.vn * gps_vel.vn + gps_vel.ve * gps_vel.ve);
+        pos->heading = atan2f(gps_vel.ve, gps_vel.vn);
+
+        float baro_alt;
+        sensor_manager_get_baro(&baro_alt, NULL, NULL);
+        if (baro_alt > 0) {
+            pos->altitude = baro_alt;
+        }
+    }
+}
+
+float sensor_manager_get_mmwave_distance(uint8_t index, float *angle, float *size, float *confidence)
+{
+    mmwave_data_t data;
+    mmwave_get_data(&data);
+
+    if (index >= data.target_count || index >= MMWAVE_MAX_TARGETS) {
+        if (angle) *angle = 0;
+        if (size) *size = 0;
+        if (confidence) *confidence = 0;
+        return 0.0f;
+    }
+
+    if (angle) *angle = data.targets[index].angle;
+    if (size) *size = data.targets[index].size;
+    if (confidence) *confidence = data.targets[index].confidence;
+    return data.targets[index].distance;
+}
+
+float sensor_manager_get_stereo_distance(uint8_t index, float *angle, float *size, float *confidence)
+{
+    stereo_data_t data;
+    stereo_vision_get_data(&data);
+
+    if (index >= data.obstacle_count || index >= STEREO_MAX_OBSTACLES) {
+        if (angle) *angle = 0;
+        if (size) *size = 0;
+        if (confidence) *confidence = 0;
+        return 0.0f;
+    }
+
+    if (angle) *angle = data.obstacles[index].angle;
+    if (size) *size = data.obstacles[index].size;
+    if (confidence) *confidence = data.obstacles[index].confidence;
+    return data.obstacles[index].distance;
 }

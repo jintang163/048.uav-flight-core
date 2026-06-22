@@ -10,6 +10,7 @@
 #include "link_manager.h"
 #include "4g_driver.h"
 #include "main.h"
+#include "task_obstacle_avoidance.h"
 
 #define HEARTBEAT_INTERVAL      1000
 #define GCS_HEARTBEAT_TIMEOUT   5000
@@ -217,6 +218,20 @@ void mavlink_handler_handle_command_long(mavlink_message_t *msg)
                     mission_manager_set_home(&home_pos);
                     mavlink_send_command_ack(msg->sysid, msg->compid, cmd.command, MAV_RESULT_ACCEPTED);
                 }
+            }
+            break;
+
+        case 4200:
+            {
+                oa_config_t *oa_cfg = oa_get_config();
+                if (cmd.param1 >= 0) oa_cfg->enabled = (cmd.param1 > 0.5f);
+                if (cmd.param2 >= 0 && cmd.param2 <= 2) oa_cfg->sensitivity = (oa_sensitivity_t)(uint8_t)cmd.param2;
+                if (cmd.param3 >= 0 && cmd.param3 <= 2) oa_cfg->strategy = (oa_strategy_t)(uint8_t)cmd.param3;
+                if (cmd.param4 > 0) oa_cfg->detection_range = cmd.param4;
+                if (cmd.param5 > 0) oa_cfg->ascend_height = cmd.param5;
+                if (cmd.param6 > 0) oa_cfg->retreat_distance = cmd.param6;
+                if (cmd.param7 > 0) oa_cfg->bypass_angle = cmd.param7;
+                mavlink_send_command_ack(msg->sysid, msg->compid, cmd.command, MAV_RESULT_ACCEPTED);
             }
             break;
 
@@ -931,4 +946,75 @@ void mavlink_receive_byte_from_link(uint8_t link, uint8_t byte)
     if (mavlink_parse_char(MAVLINK_COMM_0, byte, &msg, &status)) {
         mavlink_handler_process_message(&msg);
     }
+}
+
+void mavlink_send_obstacle_avoidance_event(void *event_ptr)
+{
+    oa_event_t *event = (oa_event_t *)event_ptr;
+    mavlink_message_t msg;
+
+    uint8_t payload[38];
+    memset(payload, 0, sizeof(payload));
+
+    uint32_t event_id = (uint32_t)(event - oa_get_active_event());
+    uint64_t ts = (uint64_t)event->start_timestamp;
+
+    memcpy(payload, &ts, 8);
+    memcpy(payload + 8, &event_id, 4);
+    payload[12] = (uint8_t)event->detection.sensor_type;
+    payload[13] = (uint8_t)event->status;
+    payload[14] = (uint8_t)event->detection.sensor_type;
+    payload[15] = (uint8_t)event->detection.direction;
+    float dist = event->detection.distance;
+    float start_lat = event->start_lat;
+    float start_lng = event->start_lng;
+    float start_alt = event->start_alt;
+    memcpy(payload + 16, &dist, 4);
+    memcpy(payload + 20, &start_lat, 4);
+    memcpy(payload + 24, &start_lng, 4);
+    memcpy(payload + 28, &start_alt, 4);
+    payload[32] = (uint8_t)event->strategy;
+    payload[33] = (uint8_t)event->status;
+    payload[34] = event->bypass_path_count;
+    payload[35] = (uint8_t)event->detection.direction;
+    payload[36] = (uint8_t)event->detection.sensor_type;
+    payload[37] = 0;
+
+    mavlink_msg_statustext_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        MAV_SEVERITY_WARNING,
+        (const char *)payload,
+        0, 0
+    );
+    mavlink_send_message(&msg);
+
+    char text[50];
+    snprintf(text, sizeof(text),
+             "OA_EVENT: strat=%d dir=%d dist=%.1f status=%d",
+             event->strategy, event->detection.direction,
+             event->detection.distance, event->status);
+    mavlink_send_statustext(MAV_SEVERITY_INFO, text);
+}
+
+void mavlink_send_obstacle_avoidance_complete(void *event_ptr)
+{
+    oa_event_t *event = (oa_event_t *)event_ptr;
+
+    char text[50];
+    snprintf(text, sizeof(text),
+             "OA_COMPLETE: dur=%lums status=%d",
+             event->complete_timestamp - event->start_timestamp,
+             event->status);
+    mavlink_send_statustext(MAV_SEVERITY_NOTICE, text);
+}
+
+void mavlink_send_obstacle_avoidance_failed(void *event_ptr, const char *reason)
+{
+    char text[50];
+    snprintf(text, sizeof(text),
+             "OA_FAILED: %s",
+             reason ? reason : "unknown");
+    mavlink_send_statustext(MAV_SEVERITY_CRITICAL, text);
 }

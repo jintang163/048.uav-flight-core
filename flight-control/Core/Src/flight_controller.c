@@ -236,3 +236,27 @@ void flight_controller_get_position(PositionState *pos)
         *pos = fc_data.position;
     }
 }
+
+void flight_controller_set_target_altitude(float altitude)
+{
+    fc_data.position.altitude = altitude;
+    fc_data.mode = FLIGHT_MODE_ALT_HOLD;
+    fc_data.mavlink_command.throttle = CONSTRAIN(
+        (altitude - fc_data.position.altitude) * 0.5f + 0.5f,
+        0.0f, 1.0f
+    );
+}
+
+void flight_controller_goto_position(float lat, float lng, float alt)
+{
+    fc_data.mode = FLIGHT_MODE_AUTO;
+    fc_data.mavlink_command.roll = 0;
+    fc_data.mavlink_command.pitch = 0;
+    fc_data.mavlink_command.yaw = 0;
+    fc_data.mavlink_command.throttle = 0.5f;
+}
+
+float flight_controller_get_heading(void)
+{
+    return fc_data.position.heading;
+}

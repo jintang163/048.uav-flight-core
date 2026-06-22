@@ -3,6 +3,7 @@ package handler
 import (
 	"groundstation-backend/internal/models"
 	"groundstation-backend/internal/service"
+	"groundstation-backend/internal/websocket"
 	"groundstation-backend/pkg/utils"
 	"net/http"
 	"strconv"
@@ -85,7 +86,46 @@ func UpdateObstacleAvoidanceConfig(c *gin.Context) {
 		return
 	}
 
+	sendObstacleAvoidanceConfigToFC(uavID, config)
+
 	utils.SuccessResponse(c, "更新避障配置成功", config)
+}
+
+func sendObstacleAvoidanceConfigToFC(uavID uint64, cfg *models.ObstacleAvoidanceConfig) {
+	enabled := 0
+	if cfg.Enabled {
+		enabled = 1
+	}
+	sensitivity := 1
+	switch cfg.Sensitivity {
+	case models.SensitivityFar:
+		sensitivity = 0
+	case models.SensitivityMedium:
+		sensitivity = 1
+	case models.SensitivityNear:
+		sensitivity = 2
+	}
+	strategy := 0
+	switch cfg.Strategy {
+	case models.StrategyHover:
+		strategy = 0
+	case models.StrategyAscendBypass:
+		strategy = 1
+	case models.StrategyRetreatBypass:
+		strategy = 2
+	}
+
+	params := map[string]interface{}{
+		"param1": float32(enabled),
+		"param2": float32(sensitivity),
+		"param3": float32(strategy),
+		"param4": float32(cfg.DetectionRange),
+		"param5": float32(cfg.AscendHeight),
+		"param6": float32(cfg.RetreatDistance),
+		"param7": float32(cfg.BypassAngle),
+	}
+
+	_ = websocket.SendCommandToUAV(uavID, "obstacle_avoidance_config", params)
 }
 
 func GetObstacleHeatmap(c *gin.Context) {

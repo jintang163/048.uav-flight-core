@@ -31,6 +31,17 @@ const (
 	StrategyRetreatBypass AvoidanceStrategy = "retreat_bypass"
 )
 
+type AvoidanceActionStatus string
+
+const (
+	AvoidanceStatusDetecting AvoidanceActionStatus = "detecting"
+	AvoidanceStatusTriggered AvoidanceActionStatus = "triggered"
+	AvoidanceStatusAvoiding  AvoidanceActionStatus = "avoiding"
+	AvoidanceStatusBypassing AvoidanceActionStatus = "bypassing"
+	AvoidanceStatusCompleted AvoidanceActionStatus = "completed"
+	AvoidanceStatusFailed    AvoidanceActionStatus = "failed"
+)
+
 type ObstacleDirection string
 
 const (

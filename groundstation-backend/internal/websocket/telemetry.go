@@ -265,3 +265,15 @@ func BroadcastBatteryMaintenanceAlert(alert interface{}) {
 	bytes, _ := json.Marshal(msg)
 	telemetryHub.broadcast <- bytes
 }
+
+func BroadcastObstacleAvoidanceEvent(uavID uint64, data interface{}) {
+	telemetryHub.BroadcastObstacleAvoidanceEvent(uavID, data)
+}
+
+func BroadcastObstacleAvoidanceStatus(uavID uint64, data interface{}) {
+	telemetryHub.BroadcastObstacleAvoidanceStatus(uavID, data)
+}
+
+func BroadcastObstacleHeatmapUpdate(uavID uint64, data interface{}) {
+	telemetryHub.BroadcastObstacleHeatmapUpdate(uavID, data)
+}

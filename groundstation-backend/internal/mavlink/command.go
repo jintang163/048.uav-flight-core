@@ -319,6 +319,15 @@ func (m *CommandManager) processMAVLinkMessage(msg *MAVLinkMessage) {
 
 	case LINK_STATUS:
 		m.processLinkStatus(uavID, msg.Payload)
+
+	case OBSTACLE_AVOIDANCE_EVENT:
+		m.processObstacleAvoidanceEvent(uavID, msg.Payload)
+
+	case OBSTACLE_AVOIDANCE_STATUS:
+		m.processObstacleAvoidanceStatus(uavID, msg.Payload)
+
+	case OBSTACLE_HEATMAP_UPDATE:
+		m.processObstacleHeatmapUpdate(uavID, msg.Payload)
 	}
 
 	_ = nsq.Publish(nsq.TopicMAVLinkMessage, map[string]interface{}{
@@ -867,6 +876,137 @@ func (m *CommandManager) processLinkStatus(uavID uint64, payload []byte) {
 		LatencyMs:      linkStatus.LatencyMs,
 	}
 	_, _ = linkService.ReportStatus(uavID, report)
+}
+
+func (m *CommandManager) processObstacleAvoidanceEvent(uavID uint64, payload []byte) {
+	event, err := ParseObstacleAvoidanceEvent(payload)
+	if err != nil {
+		return
+	}
+
+	oaService := service.NewObstacleAvoidanceService()
+
+	strategy := models.AvoidanceStrategy("hover")
+	switch event.Strategy {
+	case 1:
+		strategy = models.StrategyAscendBypass
+	case 2:
+		strategy = models.StrategyRetreatBypass
+	}
+
+	status := models.AvoidanceStatusTriggered
+	switch event.Status {
+	case 3:
+		status = models.AvoidanceStatusAvoiding
+	case 4:
+		status = models.AvoidanceStatusBypassing
+	case 5:
+		status = models.AvoidanceStatusCompleted
+	case 6:
+		status = models.AvoidanceStatusFailed
+	}
+
+	sensorType := models.SensorTypeMillimeterWave
+	switch event.SensorType {
+	case 1:
+		sensorType = models.SensorTypeStereoVision
+	case 2:
+		sensorType = models.SensorTypeLidar
+	case 3:
+		sensorType = models.SensorTypeUltrasonic
+	}
+
+	direction := models.DirectionFront
+	switch event.Direction {
+	case 1:
+		direction = models.DirectionLeft
+	case 2:
+		direction = models.DirectionRight
+	case 3:
+		direction = models.DirectionTop
+	case 4:
+		direction = models.DirectionBottom
+	case 5:
+		direction = models.DirectionRear
+	}
+
+	_, _ = oaService.CreateAvoidanceEvent(uavID, strategy, 0, sensorType, direction,
+		float64(event.ObstacleDistance), float64(event.StartLat), float64(event.StartLng), float64(event.StartAlt), nil)
+
+	websocket.BroadcastObstacleAvoidanceEvent(uavID, map[string]interface{}{
+		"uav_id":      uavID,
+		"uavId":       uavID,
+		"event_id":    event.EventID,
+		"strategy":    strategy,
+		"status":      status,
+		"sensor_type": sensorType,
+		"direction":   direction,
+		"distance":    float64(event.ObstacleDistance),
+		"start_lat":   float64(event.StartLat),
+		"start_lng":   float64(event.StartLng),
+		"start_alt":   float64(event.StartAlt),
+		"bypass_path_count": event.BypassPathCount,
+		"timestamp":   time.Now().UnixNano() / 1e6,
+	})
+}
+
+func (m *CommandManager) processObstacleAvoidanceStatus(uavID uint64, payload []byte) {
+	status, err := ParseObstacleAvoidanceStatus(payload)
+	if err != nil {
+		return
+	}
+
+	websocket.BroadcastObstacleAvoidanceStatus(uavID, map[string]interface{}{
+		"uav_id":           uavID,
+		"uavId":            uavID,
+		"enabled":          status.Enabled == 1,
+		"sensitivity":      status.Sensitivity,
+		"strategy":         status.Strategy,
+		"detection_range":  float64(status.DetectionRange),
+		"total_detections": status.TotalDetections,
+		"total_events":     status.TotalEvents,
+		"timestamp":        time.Now().UnixNano() / 1e6,
+	})
+}
+
+func (m *CommandManager) processObstacleHeatmapUpdate(uavID uint64, payload []byte) {
+	heatmap, err := ParseObstacleHeatmapUpdate(payload)
+	if err != nil {
+		return
+	}
+
+	oaService := service.NewObstacleAvoidanceService()
+
+	points := make([]map[string]interface{}, 0, heatmap.PointCount)
+	for i := 0; i < int(heatmap.PointCount) && i < 8; i++ {
+		p := heatmap.Points[i]
+		_ = oaService.RecordDetection(uavID, &models.ObstacleDetectionLog{
+			UAVID:       uavID,
+			SensorType:  models.SensorTypeMillimeterWave,
+			Direction:   models.DirectionFront,
+			Distance:    float64(p.MinDistance),
+			Latitude:    float64(p.Latitude),
+			Longitude:   float64(p.Longitude),
+			Altitude:    float64(p.Altitude),
+		})
+
+		points = append(points, map[string]interface{}{
+			"lat":            float64(p.Latitude),
+			"lng":            float64(p.Longitude),
+			"alt":            float64(p.Altitude),
+			"trigger_count":  p.TriggerCount,
+			"min_distance":   float64(p.MinDistance),
+			"intensity":      float64(p.TriggerCount) / 20.0,
+			"avg_distance":   float64(p.MinDistance),
+		})
+	}
+
+	websocket.BroadcastObstacleHeatmapUpdate(uavID, map[string]interface{}{
+		"uav_id":    uavID,
+		"uavId":     uavID,
+		"points":    points,
+		"timestamp": time.Now().UnixNano() / 1e6,
+	})
 }
 
 func getCommandResultMessage(result uint8) string {

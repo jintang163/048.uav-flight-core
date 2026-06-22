@@ -38,6 +38,9 @@ const (
 	ESC_INFO          = 290
 	HIGHRES_IMU       = 105
 	LINK_STATUS       = 390
+	OBSTACLE_AVOIDANCE_EVENT  = 420
+	OBSTACLE_AVOIDANCE_STATUS = 421
+	OBSTACLE_HEATMAP_UPDATE   = 422
 )
 
 const (
@@ -69,6 +72,7 @@ const (
 	CMD_DO_PLAY_TUNE                      = 4003
 	CMD_DO_LOITER_UNLIMITED               = 17
 	CMD_GET_FLIGHT_MODE_CODE              = 2003
+	CMD_DO_OBSTACLE_AVOIDANCE_CONFIG      = 4200
 )
 
 type MAVLinkMessage struct {

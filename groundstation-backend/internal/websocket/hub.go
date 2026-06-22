@@ -459,6 +459,60 @@ func (h *Hub) BroadcastFormationLightUpdate(formationID uint64, lightData interf
 	h.broadcast <- bytes
 }
 
+func (h *Hub) BroadcastObstacleAvoidanceEvent(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "obstacle_avoidance_start",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastObstacleAvoidanceStatus(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "obstacle_avoidance_config",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastObstacleHeatmapUpdate(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "obstacle_heatmap_update",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
 func (h *Hub) SubscribeFormation(client *Client, formationID uint64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

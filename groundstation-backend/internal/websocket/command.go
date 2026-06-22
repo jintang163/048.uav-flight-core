@@ -373,6 +373,24 @@ func ExecuteCommand(cmd *CommandRequest) (bool, error) {
 	case "mount_control":
 		return true, nil
 
+	case "set_obstacle_avoidance_config":
+		enabled := float32(0)
+		if v, ok := cmd.Params["param1"].(float64); ok && v > 0 {
+			enabled = 1
+		}
+		if v, ok := cmd.Params["enabled"].(bool); ok && v {
+			enabled = 1
+		}
+		sensitivity, _ := cmd.Params["param2"].(float64)
+		strategy, _ := cmd.Params["param3"].(float64)
+		detectionRange, _ := cmd.Params["param4"].(float64)
+		ascendHeight, _ := cmd.Params["param5"].(float64)
+		retreatDistance, _ := cmd.Params["param6"].(float64)
+		bypassAngle, _ := cmd.Params["param7"].(float64)
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_DO_OBSTACLE_AVOIDANCE_CONFIG,
+			enabled, float32(sensitivity), float32(strategy), float32(detectionRange),
+			float32(ascendHeight), float32(retreatDistance), float32(bypassAngle))
+
 	default:
 		return false, errors.New("未知的命令类型: " + cmd.Command)
 	}
