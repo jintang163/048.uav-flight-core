@@ -403,3 +403,160 @@ CREATE TABLE IF NOT EXISTS `tracking_tasks` (
   KEY `idx_status` (`status`),
   KEY `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='目标追踪任务表';
+
+-- ======================================
+-- 降落点表
+-- ======================================
+CREATE TABLE IF NOT EXISTS `landing_points` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(100) NOT NULL COMMENT '降落点名称',
+  `type` VARCHAR(20) NOT NULL DEFAULT 'alternate' COMMENT '类型:primary-主降落点,alternate-备用降落点,emergency-紧急降落点',
+  `latitude` DECIMAL(10,7) NOT NULL COMMENT '纬度',
+  `longitude` DECIMAL(10,7) NOT NULL COMMENT '经度',
+  `altitude` DECIMAL(8,2) DEFAULT NULL COMMENT '海拔高度(米)',
+  `has_markers` TINYINT DEFAULT 0 COMMENT '是否有降落标志',
+  `marker_type` VARCHAR(20) DEFAULT NULL COMMENT '标志类型:QR_CODE,H_MARKER,APRIL_TAG,ARUCO',
+  `is_moving_platform` TINYINT DEFAULT 0 COMMENT '是否为移动平台',
+  `platform_identifier` VARCHAR(64) DEFAULT NULL COMMENT '移动平台标识符',
+  `description` VARCHAR(255) DEFAULT NULL COMMENT '描述',
+  `is_active` TINYINT DEFAULT 1 COMMENT '是否启用',
+  `priority` INT DEFAULT 1 COMMENT '优先级(数字越小优先级越高)',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_type` (`type`),
+  KEY `idx_active` (`is_active`),
+  KEY `idx_moving_platform` (`is_moving_platform`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='降落点表';
+
+-- ======================================
+-- 降落会话表
+-- ======================================
+CREATE TABLE IF NOT EXISTS `landing_sessions` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `uav_id` BIGINT UNSIGNED NOT NULL COMMENT '无人机ID',
+  `landing_point_id` BIGINT UNSIGNED DEFAULT NULL COMMENT '目标降落点ID',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'pending' COMMENT '状态:pending-待降落,approaching-接近阶段,descending-下降阶段,precision-精准阶段,touchdown-触地阶段,landed-已降落,aborted-已中止,failed-失败',
+  `rtk_enabled` TINYINT DEFAULT 1 COMMENT '是否启用RTK',
+  `vision_enabled` TINYINT DEFAULT 1 COMMENT '是否启用视觉降落',
+  `is_moving_platform` TINYINT DEFAULT 0 COMMENT '是否为移动平台降落',
+  `platform_velocity_x` DECIMAL(8,4) DEFAULT NULL COMMENT '平台X方向速度(m/s)',
+  `platform_velocity_y` DECIMAL(8,4) DEFAULT NULL COMMENT '平台Y方向速度(m/s)',
+  `landing_error` DECIMAL(6,3) DEFAULT NULL COMMENT '着陆误差(米)',
+  `approach_altitude` DECIMAL(8,2) DEFAULT NULL COMMENT '接近高度(米)',
+  `final_altitude` DECIMAL(8,2) DEFAULT NULL COMMENT '最终高度(米)',
+  `start_time` DATETIME DEFAULT NULL COMMENT '开始时间',
+  `end_time` DATETIME DEFAULT NULL COMMENT '结束时间',
+  `abort_reason` VARCHAR(255) DEFAULT NULL COMMENT '中止原因',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_uav_id` (`uav_id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_landing_point` (`landing_point_id`),
+  KEY `idx_uav_status` (`uav_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='降落会话表';
+
+-- ======================================
+-- 降落轨迹点表
+-- ======================================
+CREATE TABLE IF NOT EXISTS `landing_trajectory_points` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `session_id` BIGINT UNSIGNED NOT NULL COMMENT '降落会话ID',
+  `sequence` INT NOT NULL DEFAULT 0 COMMENT '序列编号',
+  `phase` VARCHAR(20) NOT NULL COMMENT '降落阶段:approach,descend,precision,touchdown',
+  `latitude` DECIMAL(10,7) NOT NULL COMMENT '纬度',
+  `longitude` DECIMAL(10,7) NOT NULL COMMENT '经度',
+  `altitude` DECIMAL(8,2) NOT NULL COMMENT '高度(米)',
+  `velocity_x` DECIMAL(8,4) DEFAULT NULL COMMENT 'X方向速度(m/s)',
+  `velocity_y` DECIMAL(8,4) DEFAULT NULL COMMENT 'Y方向速度(m/s)',
+  `velocity_z` DECIMAL(8,4) DEFAULT NULL COMMENT 'Z方向速度(m/s)',
+  `heading` DECIMAL(8,4) DEFAULT NULL COMMENT '航向角(度)',
+  `target_latitude` DECIMAL(10,7) DEFAULT NULL COMMENT '目标纬度',
+  `target_longitude` DECIMAL(10,7) DEFAULT NULL COMMENT '目标经度',
+  `target_altitude` DECIMAL(8,2) DEFAULT NULL COMMENT '目标高度(米)',
+  `horizontal_error` DECIMAL(6,3) DEFAULT NULL COMMENT '水平误差(米)',
+  `vertical_error` DECIMAL(6,3) DEFAULT NULL COMMENT '垂直误差(米)',
+  `timestamp` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '时间戳',
+  PRIMARY KEY (`id`),
+  KEY `idx_session_id` (`session_id`),
+  KEY `idx_session_sequence` (`session_id`, `sequence`),
+  KEY `idx_session_phase` (`session_id`, `phase`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='降落轨迹点表';
+
+-- ======================================
+-- 强制降落事件表
+-- ======================================
+CREATE TABLE IF NOT EXISTS `forced_landing_events` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `uav_id` BIGINT UNSIGNED NOT NULL COMMENT '无人机ID',
+  `session_id` BIGINT UNSIGNED DEFAULT NULL COMMENT '关联的降落会话ID',
+  `trigger_type` VARCHAR(32) NOT NULL COMMENT '触发类型:EMERGENCY_SWITCH,LOW_BATTERY,COMM_LOSS,MOTOR_FAILURE,SYSTEM_FAILURE,USER_FORCED',
+  `trigger_source` VARCHAR(32) NOT NULL COMMENT '触发来源:GROUND_STATION,ONBOARD,AUTOPILOT',
+  `triggered_by` BIGINT UNSIGNED DEFAULT NULL COMMENT '触发人ID(地面站触发时)',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'triggered' COMMENT '状态:triggered-已触发,executing-执行中,completed-已完成,resolved-已解除',
+  `arm_locked` TINYINT DEFAULT 0 COMMENT '机臂是否锁定',
+  `latitude` DECIMAL(10,7) DEFAULT NULL COMMENT '触发时纬度',
+  `longitude` DECIMAL(10,7) DEFAULT NULL COMMENT '触发时经度',
+  `altitude` DECIMAL(8,2) DEFAULT NULL COMMENT '触发时高度(米)',
+  `reason` VARCHAR(255) DEFAULT NULL COMMENT '触发原因',
+  `triggered_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '触发时间',
+  `resolved_at` DATETIME DEFAULT NULL COMMENT '解除时间',
+  `resolved_by` BIGINT UNSIGNED DEFAULT NULL COMMENT '解除人ID',
+  `resolve_note` VARCHAR(255) DEFAULT NULL COMMENT '解除备注',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_uav_id` (`uav_id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_trigger_type` (`trigger_type`),
+  KEY `idx_uav_status` (`uav_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='强制降落事件表';
+
+-- ======================================
+-- 视觉降落数据表
+-- ======================================
+CREATE TABLE IF NOT EXISTS `vision_landing_data` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `session_id` BIGINT UNSIGNED NOT NULL COMMENT '降落会话ID',
+  `marker_detected` TINYINT NOT NULL DEFAULT 0 COMMENT '是否检测到标志',
+  `marker_type` VARCHAR(20) DEFAULT NULL COMMENT '标志类型',
+  `marker_id` VARCHAR(64) DEFAULT NULL COMMENT '标志ID',
+  `confidence` DECIMAL(5,4) DEFAULT NULL COMMENT '识别置信度',
+  `offset_x` DECIMAL(8,4) DEFAULT NULL COMMENT 'X方向偏移(米)',
+  `offset_y` DECIMAL(8,4) DEFAULT NULL COMMENT 'Y方向偏移(米)',
+  `offset_z` DECIMAL(8,4) DEFAULT NULL COMMENT 'Z方向偏移(米)',
+  `yaw_offset` DECIMAL(8,4) DEFAULT NULL COMMENT '偏航角偏移(度)',
+  `image_width` INT DEFAULT NULL COMMENT '画面宽度(像素)',
+  `image_height` INT DEFAULT NULL COMMENT '画面高度(像素)',
+  `marker_corners` JSON DEFAULT NULL COMMENT '标志角点坐标',
+  `timestamp` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '时间戳',
+  PRIMARY KEY (`id`),
+  KEY `idx_session_id` (`session_id`),
+  KEY `idx_marker_detected` (`marker_detected`),
+  KEY `idx_session_timestamp` (`session_id`, `timestamp`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='视觉降落数据表';
+
+-- ======================================
+-- RTK位置数据表
+-- ======================================
+CREATE TABLE IF NOT EXISTS `rtk_position_data` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `session_id` BIGINT UNSIGNED NOT NULL COMMENT '降落会话ID',
+  `fix_type` TINYINT NOT NULL DEFAULT 0 COMMENT '定位类型:0-NONE,1-SINGLE,2-DGPS,3-PPP,4-RTK_FIXED,5-RTK_FLOAT',
+  `satellites_visible` INT DEFAULT NULL COMMENT '可见卫星数',
+  `satellites_used` INT DEFAULT NULL COMMENT '使用卫星数',
+  `latitude` DECIMAL(12,9) NOT NULL COMMENT 'RTK纬度',
+  `longitude` DECIMAL(12,9) NOT NULL COMMENT 'RTK经度',
+  `altitude` DECIMAL(10,3) NOT NULL COMMENT 'RTK高度(米)',
+  `latitude_stdev` DECIMAL(8,4) DEFAULT NULL COMMENT '纬度标准差(米)',
+  `longitude_stdev` DECIMAL(8,4) DEFAULT NULL COMMENT '经度标准差(米)',
+  `altitude_stdev` DECIMAL(8,4) DEFAULT NULL COMMENT '高度标准差(米)',
+  `baseline_length` DECIMAL(10,3) DEFAULT NULL COMMENT '基线长度(米)',
+  `age_of_correction` DECIMAL(8,3) DEFAULT NULL COMMENT '校正数据延迟(秒)',
+  `timestamp` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '时间戳',
+  PRIMARY KEY (`id`),
+  KEY `idx_session_id` (`session_id`),
+  KEY `idx_fix_type` (`fix_type`),
+  KEY `idx_session_timestamp` (`session_id`, `timestamp`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='RTK位置数据表';

@@ -109,6 +109,12 @@ func main() {
 		&models.WeatherAlertEvent{},
 		&models.CollisionAlert{},
 		&models.RouteIntersection{},
+		&models.LandingPoint{},
+		&models.LandingSession{},
+		&models.LandingTrajectoryPoint{},
+		&models.ForcedLandingEvent{},
+		&models.VisionLandingData{},
+		&models.RTKPositionData{},
 	); err != nil {
 		fmt.Printf("Failed to migrate database: %v\n", err)
 		os.Exit(1)
@@ -576,6 +582,42 @@ func main() {
 			collision.GET("/uav/:uav_id/speed-factor", handler.GetUAVSpeedFactor)
 			collision.GET("/uav/:uav_id/cmd-status", handler.GetAvoidCommandStatus)
 			collision.GET("/stats", handler.GetCollisionStats)
+		}
+
+		landing := api.Group("/landing", middleware.JWTAuth())
+		{
+			landingPoints := landing.Group("/points")
+			{
+				landingPoints.POST("", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.CreateLandingPoint)
+				landingPoints.GET("", handler.ListLandingPoints)
+				landingPoints.GET("/:id", handler.GetLandingPoint)
+				landingPoints.PUT("/:id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UpdateLandingPoint)
+				landingPoints.DELETE("/:id", middleware.RoleAuth(models.UserRoleAdmin), handler.DeleteLandingPoint)
+			}
+
+			landing.POST("/plan/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.PlanLanding)
+			landing.POST("/start/:uav_id/:session_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.StartLanding)
+			landing.POST("/abort/:uav_id/:session_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.AbortLanding)
+			landing.POST("/switch-alternate/:uav_id/:session_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.SwitchToAlternateLanding)
+			landing.GET("/session/active/:uav_id", handler.GetActiveLandingSession)
+			landing.GET("/session/:id", handler.GetLandingSession)
+			landing.GET("/sessions", handler.ListLandingSessions)
+			landing.GET("/trajectory/:session_id", handler.GetLandingTrajectory)
+			landing.GET("/statistics", handler.GetLandingStatistics)
+
+			landing.POST("/trajectory/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.RecordTrajectoryPoint)
+			landing.POST("/vision/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UpdateVisionLandingData)
+			landing.POST("/rtk/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UpdateRTKPositionData)
+			landing.POST("/moving-platform/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UpdateMovingPlatformPosition)
+
+			forcedLanding := landing.Group("/forced")
+			{
+				forcedLanding.POST("/:uav_id", middleware.RoleAuth(models.UserRoleAdmin), handler.TriggerForcedLanding)
+				forcedLanding.GET("/active/:uav_id", handler.GetActiveForcedLandingEvent)
+				forcedLanding.GET("/events", handler.ListForcedLandingEvents)
+				forcedLanding.GET("/event/:id", handler.GetForcedLandingEvent)
+				forcedLanding.POST("/event/:id/resolve", middleware.RoleAuth(models.UserRoleAdmin), handler.ResolveForcedLanding)
+			}
 		}
 	}
 
