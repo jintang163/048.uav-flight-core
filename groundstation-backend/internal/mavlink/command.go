@@ -805,6 +805,16 @@ func (m *CommandManager) SendCustomCommand(uavID uint64, commandName string, par
 		p[1] = floatParam(params, "vy")
 		p[2] = floatParam(params, "vz")
 		p[3] = floatParam(params, "yaw_rate")
+	case "wind_adapt_speed":
+		cmd = 50020
+		p[0] = floatParam(params, "param1")
+		p[1] = floatParam(params, "param2")
+		p[2] = floatParam(params, "param3")
+	case "gust_protection":
+		cmd = 50021
+		p[0] = floatParam(params, "param1")
+		p[1] = floatParam(params, "param2")
+		p[2] = floatParam(params, "param3")
 	default:
 		cmd = 50000
 		p[0] = floatParam(params, "param1")

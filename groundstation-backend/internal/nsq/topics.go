@@ -12,14 +12,16 @@ const (
 	TopicLinkStatus        = "link_status"
 	TopicBlackboxUpload    = "blackbox_upload"
 	TopicOTAUpdate         = "ota_update"
+	TopicWeatherSensor     = "weather_sensor"
 
-	ChannelTelemetryProcessor = "telemetry_processor"
-	ChannelAlertNotifier      = "alert_notifier"
-	ChannelMAVLinkHandler     = "mavlink_handler"
-	ChannelDataPersister      = "data_persister"
-	ChannelNotifierSMS        = "notifier_sms"
-	ChannelNotifierEmail      = "notifier_email"
-	ChannelLinkHealthHandler  = "link_health_handler"
+	ChannelTelemetryProcessor  = "telemetry_processor"
+	ChannelAlertNotifier       = "alert_notifier"
+	ChannelMAVLinkHandler      = "mavlink_handler"
+	ChannelDataPersister       = "data_persister"
+	ChannelNotifierSMS         = "notifier_sms"
+	ChannelNotifierEmail       = "notifier_email"
+	ChannelLinkHealthHandler   = "link_health_handler"
+	ChannelWeatherSensorHandler = "weather_sensor_handler"
 )
 
 type NSQConfig struct {

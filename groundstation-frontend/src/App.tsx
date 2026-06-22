@@ -5,12 +5,13 @@ import { Provider } from 'react-redux'
 import { BrowserRouter } from 'react-router-dom'
 import Router from '@/router'
 import { store } from '@/store'
-import { useTheme } from '@/hooks/useTheme'
+import { useTheme, initTheme } from '@/hooks/useTheme'
 import { useAlert } from '@/hooks/useAlert'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useUAV } from '@/hooks/useUAV'
 import { requestNotificationPermission, initAudioContext } from '@/utils'
-import { initTheme } from '@/hooks/useTheme'
+import { useWeatherAlert } from '@/hooks/useWeatherAlert'
+import WeatherAlertModal from '@/components/WeatherAlertModal'
 
 const darkTheme = {
   token: {
@@ -114,6 +115,7 @@ const AppContent: React.FC = () => {
   const { initAlerts } = useAlert()
   const { loadUAVList } = useUAV()
   const { connect } = useWebSocket()
+  useWeatherAlert()
 
   useEffect(() => {
     initTheme()
@@ -135,6 +137,7 @@ const AppContent: React.FC = () => {
     >
       <AntdApp>
         <Router />
+        <WeatherAlertModal />
       </AntdApp>
     </ConfigProvider>
   )

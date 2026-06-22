@@ -104,6 +104,9 @@ func main() {
 		&models.CockpitLinkSnapshot{},
 		&models.NetworkMetricsLog{},
 		&models.FlightControlLog{},
+		&models.WeatherData{},
+		&models.FlightWeatherLog{},
+		&models.WeatherAlertEvent{},
 	); err != nil {
 		fmt.Printf("Failed to migrate database: %v\n", err)
 		os.Exit(1)
@@ -540,6 +543,21 @@ func main() {
 
 			cockpit.POST("/video/:uavId/sdp", handler.HandleCockpitSDPOffer)
 			cockpit.GET("/video/:uavId/webrtc-stats", handler.GetCockpitWebRTCStats)
+		}
+
+		weather := api.Group("/weather", middleware.JWTAuth())
+		{
+			weather.GET("/uav/:uav_id/latest", handler.GetLatestWeather)
+			weather.GET("/uav/:uav_id/history", handler.GetWeatherHistory)
+			weather.GET("/uav/:uav_id/alerts/active", handler.GetActiveWeatherAlerts)
+			weather.GET("/uav/:uav_id/takeoff-check", handler.CheckTakeoffWeather)
+			weather.POST("/sensor", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ReportWeatherSensorData)
+			weather.GET("/fetch", handler.FetchWeatherFromAPI)
+			weather.GET("/alerts", handler.GetWeatherAlerts)
+			weather.POST("/alerts/:id/resolve", handler.ResolveWeatherAlert)
+			weather.GET("/thresholds", handler.GetWeatherThresholds)
+			weather.PUT("/thresholds", middleware.RoleAuth(models.UserRoleAdmin), handler.UpdateWeatherThresholds)
+			weather.GET("/flight/:flight_id", handler.GetFlightWeatherLog)
 		}
 	}
 

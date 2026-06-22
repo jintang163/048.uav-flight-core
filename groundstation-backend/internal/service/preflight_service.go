@@ -19,6 +19,7 @@ const (
 	CheckCompass       PreflightCheckType = "compass"
 	CheckBarometer     PreflightCheckType = "barometer"
 	CheckArmStatus     PreflightCheckType = "arm"
+	CheckWeather       PreflightCheckType = "weather"
 )
 
 type PreflightCheckStatus string
@@ -89,6 +90,7 @@ type PreflightService struct {
 	flightService      *FlightService
 	uavService         *UAVService
 	batteryService     *BatteryService
+	weatherService     *WeatherService
 }
 
 func NewPreflightService() *PreflightService {
@@ -96,6 +98,7 @@ func NewPreflightService() *PreflightService {
 		flightService:  NewFlightService(),
 		uavService:     NewUAVService(),
 		batteryService: NewBatteryService(),
+		weatherService: NewWeatherService(),
 	}
 }
 
@@ -168,6 +171,9 @@ func (s *PreflightService) RunPreflightCheck(uavID uint64, thresholds *Preflight
 
 	safetyCheck := s.checkSafetyState(uav, flightStatus, thresholds)
 	result.Checks = append(result.Checks, safetyCheck)
+
+	weatherCheck := s.checkWeather(uavID, flightStatus, thresholds)
+	result.Checks = append(result.Checks, weatherCheck)
 
 	result.finishCheck()
 	return result, nil
@@ -656,4 +662,61 @@ func joinStrings(parts []string, sep string) string {
 		result += sep + parts[i]
 	}
 	return result
+}
+
+func (s *PreflightService) checkWeather(uavID uint64, status *models.FlightStatus, t *PreflightCheckThresholds) *PreflightCheckItem {
+	check := &PreflightCheckItem{
+		CheckType:   CheckWeather,
+		Name:        "气象条件",
+		Description: "检查风速、阵风、雷暴等气象条件是否满足起飞要求",
+		Threshold:   "风速<5m/s, 无雷暴, 阵风<12m/s",
+		CheckedAt:   time.Now(),
+	}
+
+	weatherResult, err := s.weatherService.CheckTakeoffWeather(uavID)
+	if err != nil {
+		check.Status = StatusWarning
+		check.ActualValue = "无法获取气象数据"
+		check.Message = "气象数据获取失败，默认允许起飞但请人工确认"
+		check.Detail = map[string]interface{}{"error": err.Error()}
+		return check
+	}
+
+	if weatherResult.WeatherData != nil {
+		w := weatherResult.WeatherData
+		actualParts := []string{fmt.Sprintf("风速%.1fm/s", w.WindSpeed)}
+		if w.WindGustSpeed > 0 {
+			actualParts = append(actualParts, fmt.Sprintf("阵风%.1fm/s", w.WindGustSpeed))
+		}
+		actualParts = append(actualParts, fmt.Sprintf("温度%.1f°C", w.Temperature))
+		if w.IsThunderstorm {
+			actualParts = append(actualParts, "雷暴")
+		}
+		check.ActualValue = joinStrings(actualParts, ", ")
+		check.Detail = map[string]interface{}{
+			"wind_speed":     w.WindSpeed,
+			"wind_direction": w.WindDirection,
+			"gust_speed":     w.WindGustSpeed,
+			"temperature":    w.Temperature,
+			"condition":      string(w.Condition),
+			"is_thunderstorm": w.IsThunderstorm,
+		}
+	} else {
+		check.ActualValue = "无气象数据"
+	}
+
+	switch {
+	case !weatherResult.CanTakeoff:
+		check.Status = StatusFail
+		reasons := joinStrings(weatherResult.BlockReasons, "; ")
+		check.Message = fmt.Sprintf("气象条件不满足起飞要求: %s", reasons)
+	case len(weatherResult.Warnings) > 0:
+		check.Status = StatusWarning
+		check.Message = joinStrings(weatherResult.Warnings, "; ")
+	default:
+		check.Status = StatusPass
+		check.Message = "气象条件良好，满足起飞要求"
+	}
+
+	return check
 }

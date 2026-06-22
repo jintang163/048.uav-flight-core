@@ -16,10 +16,11 @@ import (
 )
 
 type ConsumerManager struct {
-	consumers   map[string]*nsq.Consumer
-	alertService *service.AlertService
-	flightService *service.FlightService
+	consumers      map[string]*nsq.Consumer
+	alertService   *service.AlertService
+	flightService  *service.FlightService
 	missionService *service.MissionService
+	weatherService *service.WeatherService
 }
 
 var consumerManager *ConsumerManager
@@ -32,6 +33,7 @@ func NewConsumerManager() *ConsumerManager {
 			alertService:   service.NewAlertService(),
 			flightService:  service.NewFlightService(),
 			missionService: service.NewMissionService(),
+			weatherService: service.NewWeatherService(),
 		}
 	})
 	return consumerManager
@@ -51,6 +53,9 @@ func (cm *ConsumerManager) StartConsumers() error {
 		return err
 	}
 	if err := cm.startLinkHealthConsumer(); err != nil {
+		return err
+	}
+	if err := cm.startWeatherSensorConsumer(); err != nil {
 		return err
 	}
 	return nil
@@ -230,4 +235,33 @@ func (cm *ConsumerManager) StopConsumers() {
 	for _, consumer := range cm.consumers {
 		consumer.Stop()
 	}
+}
+
+func (cm *ConsumerManager) startWeatherSensorConsumer() error {
+	cfg := config.AppConfig.NSQ
+	nsqConfig := nsq.NewConfig()
+
+	consumer, err := nsq.NewConsumer(TopicWeatherSensor, ChannelWeatherSensorHandler, nsqConfig)
+	if err != nil {
+		return err
+	}
+
+	consumer.AddHandler(nsq.HandlerFunc(func(message *nsq.Message) error {
+		var data service.WeatherSensorData
+		if err := json.Unmarshal(message.Body, &data); err != nil {
+			return nil
+		}
+
+		_ = cm.weatherService.ProcessSensorData(&data)
+		return nil
+	}))
+
+	err = consumer.ConnectToNSQLookupds(cfg.LookupdAddresses)
+	if err != nil {
+		return err
+	}
+
+	cm.consumers[TopicWeatherSensor] = consumer
+	middleware.Logger.Info("NSQ consumer started", zap.String("topic", TopicWeatherSensor))
+	return nil
 }

@@ -14,6 +14,7 @@ import linkReducer from './slices/link'
 import obstacleAvoidanceReducer from './slices/obstacle-avoidance'
 import thrustLearningReducer from './slices/thrust-learning'
 import remoteCockpitReducer from './slices/remote-cockpit'
+import weatherReducer from './slices/weather'
 
 export const store = configureStore({
   reducer: {
@@ -30,7 +31,8 @@ export const store = configureStore({
     link: linkReducer,
     obstacleAvoidance: obstacleAvoidanceReducer,
     thrustLearning: thrustLearningReducer,
-    remoteCockpit: remoteCockpitReducer
+    remoteCockpit: remoteCockpitReducer,
+    weather: weatherReducer
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

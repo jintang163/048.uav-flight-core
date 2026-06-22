@@ -847,3 +847,39 @@ func (h *Hub) BroadcastWebRTCStats(uavID uint64, data interface{}) {
 
 	h.broadcast <- bytes
 }
+
+func (h *Hub) BroadcastWeatherData(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "weather_data",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastWeatherAlert(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "weather_alert",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
