@@ -12,6 +12,7 @@ export * from './link'
 export * from './battery'
 export * from './preflight'
 export * from './obstacle-avoidance'
+export * from './thrust-learning'
 
 export interface ApiResponse<T = unknown> {
   code: number

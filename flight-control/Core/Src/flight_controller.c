@@ -32,6 +32,28 @@ void flight_controller_init(void)
     fc_data.final_command.pitch = 0;
     fc_data.final_command.yaw = 0;
     fc_data.final_command.throttle = 0;
+
+    cascade_pid_init(&fc_data.roll_cascade,
+                     PID_ANGLE_ROLL_P, PID_ANGLE_ROLL_I, PID_ANGLE_ROLL_D,
+                     PID_ANGLE_ROLL_I_MAX, PID_ANGLE_ROLL_OUT_MAX,
+                     PID_RATE_ROLL_P, PID_RATE_ROLL_I, PID_RATE_ROLL_D,
+                     PID_RATE_ROLL_I_MAX, PID_RATE_ROLL_OUT_MAX);
+
+    cascade_pid_init(&fc_data.pitch_cascade,
+                     PID_ANGLE_PITCH_P, PID_ANGLE_PITCH_I, PID_ANGLE_PITCH_D,
+                     PID_ANGLE_PITCH_I_MAX, PID_ANGLE_PITCH_OUT_MAX,
+                     PID_RATE_PITCH_P, PID_RATE_PITCH_I, PID_RATE_PITCH_D,
+                     PID_RATE_PITCH_I_MAX, PID_RATE_PITCH_OUT_MAX);
+
+    cascade_pid_init(&fc_data.yaw_cascade,
+                     PID_ANGLE_YAW_P, PID_ANGLE_YAW_I, PID_ANGLE_YAW_D,
+                     PID_ANGLE_YAW_I_MAX, PID_ANGLE_YAW_OUT_MAX,
+                     PID_RATE_YAW_P, PID_RATE_YAW_I, PID_RATE_YAW_D,
+                     PID_RATE_YAW_I_MAX, PID_RATE_YAW_OUT_MAX);
+
+    pid_init(&fc_data.alt_pid,
+             PID_ALT_P, PID_ALT_I, PID_ALT_D,
+             PID_ALT_I_MAX, PID_ALT_OUT_MAX);
 }
 
 void flight_controller_update(float dt)
@@ -141,6 +163,30 @@ void flight_controller_update(float dt)
     fc_data.final_command.pitch = CONSTRAIN(fc_data.final_command.pitch, -MAX_TILT_ANGLE, MAX_TILT_ANGLE);
     fc_data.final_command.yaw = CONSTRAIN(fc_data.final_command.yaw, -MAX_YAW_RATE, MAX_YAW_RATE);
     fc_data.final_command.throttle = CONSTRAIN(fc_data.final_command.throttle, 0.0f, 1.0f);
+
+    if (fc_data.armed && dt > 0.0f) {
+        fc_data.attitude_target.roll = cascade_pid_compute(&fc_data.roll_cascade,
+                                                            fc_data.final_command.roll,
+                                                            fc_data.attitude.euler.roll,
+                                                            fc_data.attitude.angular_velocity.x,
+                                                            dt);
+        fc_data.attitude_target.pitch = cascade_pid_compute(&fc_data.pitch_cascade,
+                                                             fc_data.final_command.pitch,
+                                                             fc_data.attitude.euler.pitch,
+                                                             fc_data.attitude.angular_velocity.y,
+                                                             dt);
+        fc_data.attitude_target.yaw = cascade_pid_compute(&fc_data.yaw_cascade,
+                                                           fc_data.final_command.yaw,
+                                                           fc_data.attitude.euler.yaw,
+                                                           fc_data.attitude.angular_velocity.z,
+                                                           dt);
+        fc_data.attitude_target.throttle = fc_data.final_command.throttle;
+
+        fc_data.rate_target.roll = fc_data.roll_cascade.rate_pid.output;
+        fc_data.rate_target.pitch = fc_data.pitch_cascade.rate_pid.output;
+        fc_data.rate_target.yaw = fc_data.yaw_cascade.rate_pid.output;
+        fc_data.rate_target.throttle = fc_data.final_command.throttle;
+    }
 }
 
 void flight_controller_set_mode(FlightMode mode)
@@ -259,4 +305,66 @@ void flight_controller_goto_position(float lat, float lng, float alt)
 float flight_controller_get_heading(void)
 {
     return fc_data.position.heading;
+}
+
+float flight_controller_get_throttle(void)
+{
+    return fc_data.final_command.throttle;
+}
+
+void flight_controller_get_pid_gains(PIDGainSet *gains)
+{
+    if (gains == NULL) {
+        return;
+    }
+    gains->roll_p = fc_data.roll_cascade.angle_pid.kp;
+    gains->roll_i = fc_data.roll_cascade.angle_pid.ki;
+    gains->roll_d = fc_data.roll_cascade.angle_pid.kd;
+    gains->rate_roll_p = fc_data.roll_cascade.rate_pid.kp;
+    gains->rate_roll_i = fc_data.roll_cascade.rate_pid.ki;
+    gains->rate_roll_d = fc_data.roll_cascade.rate_pid.kd;
+
+    gains->pitch_p = fc_data.pitch_cascade.angle_pid.kp;
+    gains->pitch_i = fc_data.pitch_cascade.angle_pid.ki;
+    gains->pitch_d = fc_data.pitch_cascade.angle_pid.kd;
+    gains->rate_pitch_p = fc_data.pitch_cascade.rate_pid.kp;
+    gains->rate_pitch_i = fc_data.pitch_cascade.rate_pid.ki;
+    gains->rate_pitch_d = fc_data.pitch_cascade.rate_pid.kd;
+
+    gains->yaw_p = fc_data.yaw_cascade.angle_pid.kp;
+    gains->yaw_i = fc_data.yaw_cascade.angle_pid.ki;
+    gains->yaw_d = fc_data.yaw_cascade.angle_pid.kd;
+    gains->rate_yaw_p = fc_data.yaw_cascade.rate_pid.kp;
+    gains->rate_yaw_i = fc_data.yaw_cascade.rate_pid.ki;
+    gains->rate_yaw_d = fc_data.yaw_cascade.rate_pid.kd;
+
+    gains->alt_p = fc_data.alt_pid.kp;
+    gains->alt_i = fc_data.alt_pid.ki;
+    gains->alt_d = fc_data.alt_pid.kd;
+}
+
+void flight_controller_set_pid_gains(PIDGainSet *gains)
+{
+    if (gains == NULL) {
+        return;
+    }
+    pid_set_gains(&fc_data.roll_cascade.angle_pid, gains->roll_p, gains->roll_i, gains->roll_d);
+    pid_set_gains(&fc_data.roll_cascade.rate_pid, gains->rate_roll_p, gains->rate_roll_i, gains->rate_roll_d);
+
+    pid_set_gains(&fc_data.pitch_cascade.angle_pid, gains->pitch_p, gains->pitch_i, gains->pitch_d);
+    pid_set_gains(&fc_data.pitch_cascade.rate_pid, gains->rate_pitch_p, gains->rate_pitch_i, gains->rate_pitch_d);
+
+    pid_set_gains(&fc_data.yaw_cascade.angle_pid, gains->yaw_p, gains->yaw_i, gains->yaw_d);
+    pid_set_gains(&fc_data.yaw_cascade.rate_pid, gains->rate_yaw_p, gains->rate_yaw_i, gains->rate_yaw_d);
+
+    pid_set_gains(&fc_data.alt_pid, gains->alt_p, gains->alt_i, gains->alt_d);
+}
+
+bool flight_controller_get_mavlink_command(ControlCommand *cmd)
+{
+    if (cmd == NULL) {
+        return false;
+    }
+    *cmd = fc_data.mavlink_command;
+    return true;
 }

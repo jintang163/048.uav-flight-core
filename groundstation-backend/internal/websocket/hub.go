@@ -513,6 +513,60 @@ func (h *Hub) BroadcastObstacleHeatmapUpdate(uavID uint64, data interface{}) {
 	h.broadcast <- bytes
 }
 
+func (h *Hub) BroadcastThrustLearningStatus(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "thrust_learning_status",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastThrustCurveUpdate(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "thrust_curve_update",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
+func (h *Hub) BroadcastPIDGainsUpdate(uavID uint64, data interface{}) {
+	msg := &Message{
+		Type:    "pid_gains_update",
+		Data:    data,
+		Payload: data,
+		UAVID:   uavID,
+		UavID:   uavID,
+		Time:    time.Now().UnixNano() / 1e6,
+	}
+
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	h.broadcast <- bytes
+}
+
 func (h *Hub) SubscribeFormation(client *Client, formationID uint64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

@@ -4,6 +4,7 @@
 #include "types.h"
 #include "flight_config.h"
 #include "pid_controller.h"
+#include "thrust_learner.h"
 
 typedef enum {
     FCS_DISARMED = 0,
@@ -31,6 +32,10 @@ typedef struct {
     bool home_set;
     uint32_t arm_time;
     uint32_t flight_time;
+    CascadePID roll_cascade;
+    CascadePID pitch_cascade;
+    CascadePID yaw_cascade;
+    PIDController alt_pid;
 } FlightControllerData;
 
 void flight_controller_init(void);
@@ -56,5 +61,9 @@ void flight_controller_get_position(PositionState *pos);
 void flight_controller_set_target_altitude(float altitude);
 void flight_controller_goto_position(float lat, float lng, float alt);
 float flight_controller_get_heading(void);
+float flight_controller_get_throttle(void);
+void flight_controller_get_pid_gains(PIDGainSet *gains);
+void flight_controller_set_pid_gains(PIDGainSet *gains);
+bool flight_controller_get_mavlink_command(ControlCommand *cmd);
 
 #endif

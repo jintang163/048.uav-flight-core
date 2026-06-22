@@ -328,6 +328,15 @@ func (m *CommandManager) processMAVLinkMessage(msg *MAVLinkMessage) {
 
 	case OBSTACLE_HEATMAP_UPDATE:
 		m.processObstacleHeatmapUpdate(uavID, msg.Payload)
+
+	case THRUST_LEARNING_STATUS:
+		m.processThrustLearningStatus(uavID, msg.Payload)
+
+	case THRUST_CURVE_DATA:
+		m.processThrustCurveData(uavID, msg.Payload)
+
+	case PID_GAINS_REPORT:
+		m.processPIDGainsReport(uavID, msg.Payload)
 	}
 
 	_ = nsq.Publish(nsq.TopicMAVLinkMessage, map[string]interface{}{
@@ -1026,4 +1035,55 @@ func getCommandResultMessage(result uint8) string {
 	default:
 		return fmt.Sprintf("未知错误 (%d)", result)
 	}
+}
+
+func (m *CommandManager) processThrustLearningStatus(uavID uint64, payload []byte) {
+	state, weight, hoverThrottle, sampleCount, progress, err := ParseThrustLearningStatus(payload)
+	if err != nil {
+		return
+	}
+
+	tlService := service.NewThrustLearningService()
+	_ = tlService.UpdateStatusFromMAVLink(uavID, state, weight, hoverThrottle, sampleCount, progress)
+
+	status, _ := tlService.GetStatus(uavID)
+	websocket.BroadcastThrustLearningStatus(uavID, status)
+}
+
+func (m *CommandManager) processThrustCurveData(uavID uint64, payload []byte) {
+	_, count, points, err := ParseThrustCurveData(payload)
+	if err != nil {
+		return
+	}
+
+	tlService := service.NewThrustLearningService()
+
+	curvePoints := make([]struct {
+		Throttle float64
+		Thrust   float64
+		Rpm      float64
+	}, count)
+	for i, p := range points {
+		curvePoints[i].Throttle = p.Throttle
+		curvePoints[i].Thrust = p.Thrust
+		curvePoints[i].Rpm = 0
+	}
+
+	_ = tlService.StoreCurvePoints(uavID, curvePoints)
+
+	updatedPoints, _ := tlService.GetThrustCurve(uavID)
+	websocket.BroadcastThrustCurveUpdate(uavID, updatedPoints)
+}
+
+func (m *CommandManager) processPIDGainsReport(uavID uint64, payload []byte) {
+	gains, err := ParsePIDGainsReport(payload)
+	if err != nil {
+		return
+	}
+
+	tlService := service.NewThrustLearningService()
+	_ = tlService.StorePIDGains(uavID, gains)
+
+	profile, _ := tlService.GetPIDGains(uavID)
+	websocket.BroadcastPIDGainsUpdate(uavID, profile)
 }

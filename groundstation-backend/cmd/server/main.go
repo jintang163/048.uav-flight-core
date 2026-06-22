@@ -88,6 +88,10 @@ func main() {
 		&models.ObstacleDetectionLog{},
 		&models.ObstacleAvoidanceEvent{},
 		&models.ObstacleHeatmapPoint{},
+		&models.ThrustLearningStatus{},
+		&models.ThrustCurvePoint{},
+		&models.PIDGainProfile{},
+		&models.ThrustLearningSample{},
 	); err != nil {
 		fmt.Printf("Failed to migrate database: %v\n", err)
 		os.Exit(1)
@@ -482,6 +486,19 @@ func main() {
 			obstacleAvoidance.GET("/events", handler.GetAvoidanceEvents)
 			obstacleAvoidance.GET("/events/:id", handler.GetAvoidanceEventDetail)
 			obstacleAvoidance.POST("/test/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.TriggerAvoidanceTest)
+		}
+
+		thrustLearning := api.Group("/thrust-learning", middleware.JWTAuth())
+		{
+			thrustLearning.GET("/status/:uav_id", handler.GetThrustLearningStatus)
+			thrustLearning.POST("/trigger/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.TriggerThrustLearning)
+			thrustLearning.GET("/curve/:uav_id", handler.GetThrustCurve)
+			thrustLearning.PUT("/curve/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UpdateThrustCurve)
+			thrustLearning.GET("/pid/:uav_id", handler.GetPIDGains)
+			thrustLearning.PUT("/pid/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UpdatePIDGains)
+			thrustLearning.POST("/pid/apply/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ApplyAutoTunedPID)
+			thrustLearning.GET("/samples/:uav_id", handler.GetThrustLearningSamples)
+			thrustLearning.POST("/optimize/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.OptimizeThrustModel)
 		}
 	}
 

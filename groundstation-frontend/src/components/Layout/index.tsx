@@ -37,7 +37,8 @@ import {
   ThunderboltOutlined,
   BatteryFullOutlined,
   PoweroffOutlined,
-  SafetyCertificateOutlined
+  SafetyCertificateOutlined,
+  RadarChartOutlined
 } from '@ant-design/icons'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '@/store'
@@ -310,6 +311,11 @@ const MainLayout: React.FC = () => {
       label: '空中避障与感知'
     },
     {
+      key: 'thrust-learning',
+      icon: <RadarChartOutlined />,
+      label: '推力自学习'
+    },
+    {
       key: 'alert-center',
       icon: <BellOutlined />,
       label: '告警中心'
@@ -378,6 +384,7 @@ const MainLayout: React.FC = () => {
     'battery-management': '电池管理',
     'charging-management': '充电管理',
     'obstacle-avoidance': '空中避障与感知',
+    'thrust-learning': '推力自学习',
     'alert-center': '告警中心',
     'firmware': '固件管理',
     'settings': '系统设置'

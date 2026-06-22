@@ -277,3 +277,15 @@ func BroadcastObstacleAvoidanceStatus(uavID uint64, data interface{}) {
 func BroadcastObstacleHeatmapUpdate(uavID uint64, data interface{}) {
 	telemetryHub.BroadcastObstacleHeatmapUpdate(uavID, data)
 }
+
+func BroadcastThrustLearningStatus(uavID uint64, data interface{}) {
+	telemetryHub.BroadcastThrustLearningStatus(uavID, data)
+}
+
+func BroadcastThrustCurveUpdate(uavID uint64, data interface{}) {
+	telemetryHub.BroadcastThrustCurveUpdate(uavID, data)
+}
+
+func BroadcastPIDGainsUpdate(uavID uint64, data interface{}) {
+	telemetryHub.BroadcastPIDGainsUpdate(uavID, data)
+}

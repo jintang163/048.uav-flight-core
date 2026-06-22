@@ -38,6 +38,7 @@ import {
   setConfig as setOAConfig
 } from '@/store/slices/obstacle-avoidance'
 import { setupObstacleAvoidanceHandlers } from './obstacle-avoidance'
+import { setupThrustLearningHandlers } from './thrust-learning'
 import type {
   LinkStatus,
 
@@ -62,6 +63,7 @@ import type WebSocketClient from './client'
 
 export const setupTelemetryHandlers = (wsClient: WebSocketClient, dispatch: Dispatch): void => {
   setupObstacleAvoidanceHandlers(wsClient, dispatch)
+  setupThrustLearningHandlers(wsClient, dispatch)
 
   wsClient.on('telemetry', (data: unknown) => {
     const telemetryData = data as TelemetryData

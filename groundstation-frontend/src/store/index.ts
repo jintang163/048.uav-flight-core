@@ -12,6 +12,7 @@ import payloadReducer from './slices/payload'
 import motorReducer from './slices/motor'
 import linkReducer from './slices/link'
 import obstacleAvoidanceReducer from './slices/obstacle-avoidance'
+import thrustLearningReducer from './slices/thrust-learning'
 
 export const store = configureStore({
   reducer: {
@@ -26,7 +27,8 @@ export const store = configureStore({
     payload: payloadReducer,
     motor: motorReducer,
     link: linkReducer,
-    obstacleAvoidance: obstacleAvoidanceReducer
+    obstacleAvoidance: obstacleAvoidanceReducer,
+    thrustLearning: thrustLearningReducer
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

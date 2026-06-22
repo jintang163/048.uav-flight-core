@@ -41,7 +41,9 @@ typedef enum {
     MAV_CMD_COMPONENT_ARM_DISARM = 400,
     MAV_CMD_DO_CHANGE_SPEED = 178,
     MAV_CMD_DO_SET_HOME = 179,
-    MAV_CMD_DO_SET_PARAM = 223
+    MAV_CMD_DO_SET_PARAM = 223,
+    CMD_DO_THRUST_LEARNING_CONFIG = 4201,
+    CMD_DO_SET_PID_GAINS = 4202
 } MAVCommand;
 
 void mavlink_handler_init(void);
@@ -81,5 +83,9 @@ void mavlink_send_obstacle_avoidance_failed(void *event, const char *reason);
 
 void mavlink_set_primary_link(uint8_t link);
 void mavlink_receive_byte_from_link(uint8_t link, uint8_t byte);
+
+void mavlink_send_thrust_learning_status(void);
+void mavlink_send_thrust_curve(uint8_t start_index, uint8_t count);
+void mavlink_send_pid_gains(void);
 
 #endif

@@ -14,6 +14,7 @@
 #include "task_blackbox.h"
 #include "task_link_manager.h"
 #include "task_obstacle_avoidance.h"
+#include "task_thrust_learner.h"
 #include "4g_driver.h"
 #include "mavlink_handler.h"
 
@@ -74,6 +75,7 @@ int main(void)
     task_blackbox_init();
     task_link_manager_init();
     task_obstacle_avoidance_init();
+    task_thrust_learner_init();
 
     vTaskStartScheduler();
 

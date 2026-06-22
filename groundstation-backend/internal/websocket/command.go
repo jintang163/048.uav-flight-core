@@ -391,6 +391,26 @@ func ExecuteCommand(cmd *CommandRequest) (bool, error) {
 			enabled, float32(sensitivity), float32(strategy), float32(detectionRange),
 			float32(ascendHeight), float32(retreatDistance), float32(bypassAngle))
 
+	case "trigger_thrust_learning":
+		enable := float32(1)
+		if v, ok := cmd.Params["param1"].(float64); ok {
+			enable = float32(v)
+		}
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_DO_THRUST_LEARNING_CONFIG, enable, 0, 0, 0, 0, 0, 0)
+
+	case "set_pid_gains":
+		param1, _ := cmd.Params["param1"].(float64)
+		param2, _ := cmd.Params["param2"].(float64)
+		param3, _ := cmd.Params["param3"].(float64)
+		param4, _ := cmd.Params["param4"].(float64)
+		param5, _ := cmd.Params["param5"].(float64)
+		param6, _ := cmd.Params["param6"].(float64)
+		param7, _ := cmd.Params["param7"].(float64)
+		return sendMAVLinkCommand(cmd.UAVID, mavlink.CMD_DO_SET_PID_GAINS,
+			float32(param1), float32(param2), float32(param3),
+			float32(param4), float32(param5), float32(param6),
+			float32(param7))
+
 	default:
 		return false, errors.New("未知的命令类型: " + cmd.Command)
 	}

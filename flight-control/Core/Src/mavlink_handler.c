@@ -11,6 +11,7 @@
 #include "4g_driver.h"
 #include "main.h"
 #include "task_obstacle_avoidance.h"
+#include "thrust_learner.h"
 
 #define HEARTBEAT_INTERVAL      1000
 #define GCS_HEARTBEAT_TIMEOUT   5000
@@ -232,6 +233,38 @@ void mavlink_handler_handle_command_long(mavlink_message_t *msg)
                 if (cmd.param6 > 0) oa_cfg->retreat_distance = cmd.param6;
                 if (cmd.param7 > 0) oa_cfg->bypass_angle = cmd.param7;
                 mavlink_send_command_ack(msg->sysid, msg->compid, cmd.command, MAV_RESULT_ACCEPTED);
+            }
+            break;
+
+        case CMD_DO_THRUST_LEARNING_CONFIG:
+            {
+                if (cmd.param1 > 0.5f) {
+                    thrust_learner_init();
+                    if (cmd.param2 > 0.5f) {
+                        thrust_learner_start_weight_estimation();
+                    }
+                }
+                if (cmd.param3 > 0.5f) {
+                    thrust_learner_trigger_optimization();
+                }
+                mavlink_send_command_ack(msg->sysid, msg->compid, cmd.command, MAV_RESULT_ACCEPTED);
+                mavlink_send_thrust_learning_status();
+            }
+            break;
+
+        case CMD_DO_SET_PID_GAINS:
+            {
+                PIDGainSet gains;
+                flight_controller_get_pid_gains(&gains);
+                if (cmd.param1 > 0) gains.roll_p = cmd.param1;
+                if (cmd.param2 > 0) gains.roll_i = cmd.param2;
+                if (cmd.param3 > 0) gains.roll_d = cmd.param3;
+                if (cmd.param4 > 0) gains.alt_p = cmd.param4;
+                if (cmd.param5 > 0) gains.alt_i = cmd.param5;
+                if (cmd.param6 > 0) gains.alt_d = cmd.param6;
+                flight_controller_set_pid_gains(&gains);
+                mavlink_send_command_ack(msg->sysid, msg->compid, cmd.command, MAV_RESULT_ACCEPTED);
+                mavlink_send_pid_gains();
             }
             break;
 
@@ -1017,4 +1050,125 @@ void mavlink_send_obstacle_avoidance_failed(void *event_ptr, const char *reason)
              "OA_FAILED: %s",
              reason ? reason : "unknown");
     mavlink_send_statustext(MAV_SEVERITY_CRITICAL, text);
+}
+
+#define MAVLINK_MSG_ID_THRUST_LEARNING_STATUS 430
+#define MAVLINK_MSG_ID_THRUST_CURVE_DATA 431
+#define MAVLINK_MSG_ID_PID_GAINS_REPORT 432
+
+void mavlink_send_thrust_learning_status(void)
+{
+    mavlink_message_t msg;
+    uint8_t payload[32];
+    memset(payload, 0, sizeof(payload));
+
+    uint8_t state = (uint8_t)thrust_learner_get_state();
+    float weight_kg = thrust_learner_get_estimated_weight();
+    float hover_throttle = thrust_learner_get_hover_throttle();
+    uint32_t sample_cnt = thrust_learner_get_sample_count();
+    float progress = (float)sample_cnt / (float)THRUST_LEARNER_MAX_SAMPLES;
+
+    payload[0] = state;
+    memcpy(payload + 4, &weight_kg, 4);
+    memcpy(payload + 8, &hover_throttle, 4);
+    memcpy(payload + 12, &sample_cnt, 4);
+    memcpy(payload + 16, &progress, 4);
+
+    mavlink_msg_statustext_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        MAV_SEVERITY_INFO,
+        (const char *)payload,
+        0, 0
+    );
+    mavlink_send_message(&msg);
+
+    char text[80];
+    snprintf(text, sizeof(text),
+             "THRUST_LEARN: state=%d weight=%.2fkg hover=%.2f%% samples=%lu progress=%.1f%%",
+             state, weight_kg, hover_throttle * 100.0f,
+             (unsigned long)sample_cnt, progress * 100.0f);
+    mavlink_send_statustext(MAV_SEVERITY_INFO, text);
+}
+
+void mavlink_send_thrust_curve(uint8_t start_index, uint8_t count)
+{
+    mavlink_message_t msg;
+    ThrustCurvePoint points[16];
+    uint8_t actual_count = 0;
+
+    thrust_learner_get_thrust_curve(points, start_index, count, &actual_count);
+
+    uint8_t payload[132];
+    memset(payload, 0, sizeof(payload));
+
+    payload[0] = start_index;
+    payload[1] = actual_count;
+
+    for (uint8_t i = 0; i < actual_count && i < 16; i++) {
+        uint8_t offset = 4 + i * 8;
+        memcpy(payload + offset, &points[i].throttle, 4);
+        memcpy(payload + offset + 4, &points[i].thrust_N, 4);
+    }
+
+    mavlink_msg_statustext_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        MAV_SEVERITY_INFO,
+        (const char *)payload,
+        0, 0
+    );
+    mavlink_send_message(&msg);
+}
+
+void mavlink_send_pid_gains(void)
+{
+    mavlink_message_t msg;
+    PIDGainSet gains;
+    thrust_learner_get_pid_gains(&gains);
+
+    uint8_t payload[88];
+    memset(payload, 0, sizeof(payload));
+
+    uint8_t offset = 0;
+    memcpy(payload + offset, &gains.roll_p, 4); offset += 4;
+    memcpy(payload + offset, &gains.roll_i, 4); offset += 4;
+    memcpy(payload + offset, &gains.roll_d, 4); offset += 4;
+    memcpy(payload + offset, &gains.rate_roll_p, 4); offset += 4;
+    memcpy(payload + offset, &gains.rate_roll_i, 4); offset += 4;
+    memcpy(payload + offset, &gains.rate_roll_d, 4); offset += 4;
+    memcpy(payload + offset, &gains.pitch_p, 4); offset += 4;
+    memcpy(payload + offset, &gains.pitch_i, 4); offset += 4;
+    memcpy(payload + offset, &gains.pitch_d, 4); offset += 4;
+    memcpy(payload + offset, &gains.rate_pitch_p, 4); offset += 4;
+    memcpy(payload + offset, &gains.rate_pitch_i, 4); offset += 4;
+    memcpy(payload + offset, &gains.rate_pitch_d, 4); offset += 4;
+    memcpy(payload + offset, &gains.yaw_p, 4); offset += 4;
+    memcpy(payload + offset, &gains.yaw_i, 4); offset += 4;
+    memcpy(payload + offset, &gains.yaw_d, 4); offset += 4;
+    memcpy(payload + offset, &gains.rate_yaw_p, 4); offset += 4;
+    memcpy(payload + offset, &gains.rate_yaw_i, 4); offset += 4;
+    memcpy(payload + offset, &gains.rate_yaw_d, 4); offset += 4;
+    memcpy(payload + offset, &gains.alt_p, 4); offset += 4;
+    memcpy(payload + offset, &gains.alt_i, 4); offset += 4;
+    memcpy(payload + offset, &gains.alt_d, 4); offset += 4;
+
+    mavlink_msg_statustext_pack(
+        mavlink_data.system_id,
+        mavlink_data.component_id,
+        &msg,
+        MAV_SEVERITY_INFO,
+        (const char *)payload,
+        0, 0
+    );
+    mavlink_send_message(&msg);
+
+    char text[100];
+    snprintf(text, sizeof(text),
+             "PID: roll_p=%.3f roll_i=%.3f roll_d=%.3f alt_p=%.3f alt_i=%.3f alt_d=%.3f",
+             gains.roll_p, gains.roll_i, gains.roll_d,
+             gains.alt_p, gains.alt_i, gains.alt_d);
+    mavlink_send_statustext(MAV_SEVERITY_INFO, text);
 }
