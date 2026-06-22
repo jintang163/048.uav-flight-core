@@ -316,6 +316,11 @@ const MainLayout: React.FC = () => {
       label: '推力自学习'
     },
     {
+      key: 'remote-cockpit',
+      icon: <ThunderboltOutlined />,
+      label: '远程驾驶舱'
+    },
+    {
       key: 'alert-center',
       icon: <BellOutlined />,
       label: '告警中心'
@@ -385,6 +390,7 @@ const MainLayout: React.FC = () => {
     'charging-management': '充电管理',
     'obstacle-avoidance': '空中避障与感知',
     'thrust-learning': '推力自学习',
+    'remote-cockpit': '远程驾驶舱',
     'alert-center': '告警中心',
     'firmware': '固件管理',
     'settings': '系统设置'

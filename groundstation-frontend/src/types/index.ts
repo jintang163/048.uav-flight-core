@@ -13,6 +13,7 @@ export * from './battery'
 export * from './preflight'
 export * from './obstacle-avoidance'
 export * from './thrust-learning'
+export * from './remote-cockpit'
 
 export interface ApiResponse<T = unknown> {
   code: number

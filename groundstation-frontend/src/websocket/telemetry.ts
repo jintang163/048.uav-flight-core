@@ -39,6 +39,7 @@ import {
 } from '@/store/slices/obstacle-avoidance'
 import { setupObstacleAvoidanceHandlers } from './obstacle-avoidance'
 import { setupThrustLearningHandlers } from './thrust-learning'
+import { setupRemoteCockpitHandlers } from './remote-cockpit'
 import type {
   LinkStatus,
 
@@ -64,6 +65,7 @@ import type WebSocketClient from './client'
 export const setupTelemetryHandlers = (wsClient: WebSocketClient, dispatch: Dispatch): void => {
   setupObstacleAvoidanceHandlers(wsClient, dispatch)
   setupThrustLearningHandlers(wsClient, dispatch)
+  setupRemoteCockpitHandlers(wsClient, dispatch)
 
   wsClient.on('telemetry', (data: unknown) => {
     const telemetryData = data as TelemetryData

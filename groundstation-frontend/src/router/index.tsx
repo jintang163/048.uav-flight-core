@@ -35,6 +35,7 @@ const BatteryManagement = lazy(() => import('@/pages/BatteryManagement'))
 const ChargingManagement = lazy(() => import('@/pages/ChargingManagement'))
 const ObstacleAvoidance = lazy(() => import('@/pages/ObstacleAvoidance'))
 const ThrustLearning = lazy(() => import('@/pages/ThrustLearning'))
+const RemoteCockpit = lazy(() => import('@/pages/RemoteCockpit'))
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAppSelector(state => state.auth)
@@ -214,6 +215,14 @@ const routes: RouteObject[] = [
         element: (
           <Suspense fallback={<Loading />}>
             <ThrustLearning />
+          </Suspense>
+        )
+      },
+      {
+        path: 'remote-cockpit',
+        element: (
+          <Suspense fallback={<Loading />}>
+            <RemoteCockpit />
           </Suspense>
         )
       }
