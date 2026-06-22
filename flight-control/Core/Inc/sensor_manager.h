@@ -45,4 +45,8 @@ void sensor_manager_calibrate_gyro(void);
 void sensor_manager_calibrate_accel(void);
 void sensor_manager_calibrate_mag(void);
 
+void sensor_manager_get_position(PositionState *pos);
+float sensor_manager_get_mmwave_distance(uint8_t index, float *angle, float *size, float *confidence);
+float sensor_manager_get_stereo_distance(uint8_t index, float *angle, float *size, float *confidence);
+
 #endif

@@ -27,6 +27,17 @@ import {
   addMotorFailureAlert
 } from '@/store/slices/motor'
 import { updateLinkStatus } from '@/store/slices/link'
+import {
+  updateDetections as updateOADetections,
+  addAvoidanceEvent,
+  updateAvoidanceEvent,
+  completeAvoidanceEvent,
+  addHeatmapPoint,
+  updateHeatmapPoints,
+  addLog as addOALog,
+  setConfig as setOAConfig
+} from '@/store/slices/obstacle-avoidance'
+import { setupObstacleAvoidanceHandlers } from './obstacle-avoidance'
 import type {
   LinkStatus,
 
@@ -50,6 +61,8 @@ import type { FormationCollisionWarning } from '@/types/formation'
 import type WebSocketClient from './client'
 
 export const setupTelemetryHandlers = (wsClient: WebSocketClient, dispatch: Dispatch): void => {
+  setupObstacleAvoidanceHandlers(wsClient, dispatch)
+
   wsClient.on('telemetry', (data: unknown) => {
     const telemetryData = data as TelemetryData
     dispatch(updateTelemetry(telemetryData))

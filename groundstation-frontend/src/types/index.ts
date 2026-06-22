@@ -11,6 +11,7 @@ export * from './blackbox'
 export * from './link'
 export * from './battery'
 export * from './preflight'
+export * from './obstacle-avoidance'
 
 export interface ApiResponse<T = unknown> {
   code: number

@@ -75,6 +75,10 @@ void mavlink_send_log_data(uint16_t id, uint32_t offset, uint8_t count, const ui
 
 void mavlink_send_link_status(LinkType active_link, LinkStatus *radio_status, LinkStatus *lte_status);
 
+void mavlink_send_obstacle_avoidance_event(void *event);
+void mavlink_send_obstacle_avoidance_complete(void *event);
+void mavlink_send_obstacle_avoidance_failed(void *event, const char *reason);
+
 void mavlink_set_primary_link(uint8_t link);
 void mavlink_receive_byte_from_link(uint8_t link, uint8_t byte);
 

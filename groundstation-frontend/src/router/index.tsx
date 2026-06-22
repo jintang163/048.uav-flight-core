@@ -33,6 +33,7 @@ const Blackbox = lazy(() => import('@/pages/Blackbox'))
 const BlackboxDetail = lazy(() => import('@/pages/BlackboxDetail'))
 const BatteryManagement = lazy(() => import('@/pages/BatteryManagement'))
 const ChargingManagement = lazy(() => import('@/pages/ChargingManagement'))
+const ObstacleAvoidance = lazy(() => import('@/pages/ObstacleAvoidance'))
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAppSelector(state => state.auth)
@@ -196,6 +197,14 @@ const routes: RouteObject[] = [
         element: (
           <Suspense fallback={<Loading />}>
             <ChargingManagement />
+          </Suspense>
+        )
+      },
+      {
+        path: 'obstacle-avoidance',
+        element: (
+          <Suspense fallback={<Loading />}>
+            <ObstacleAvoidance />
           </Suspense>
         )
       }

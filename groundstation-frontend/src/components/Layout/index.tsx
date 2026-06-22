@@ -36,7 +36,8 @@ import {
   CameraOutlined,
   ThunderboltOutlined,
   BatteryFullOutlined,
-  PoweroffOutlined
+  PoweroffOutlined,
+  SafetyCertificateOutlined
 } from '@ant-design/icons'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '@/store'
@@ -304,6 +305,11 @@ const MainLayout: React.FC = () => {
       label: '充电管理'
     },
     {
+      key: 'obstacle-avoidance',
+      icon: <SafetyCertificateOutlined />,
+      label: '空中避障与感知'
+    },
+    {
       key: 'alert-center',
       icon: <BellOutlined />,
       label: '告警中心'
@@ -371,6 +377,7 @@ const MainLayout: React.FC = () => {
     'blackbox': '飞行日志黑匣子',
     'battery-management': '电池管理',
     'charging-management': '充电管理',
+    'obstacle-avoidance': '空中避障与感知',
     'alert-center': '告警中心',
     'firmware': '固件管理',
     'settings': '系统设置'

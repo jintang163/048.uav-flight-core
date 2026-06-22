@@ -84,6 +84,10 @@ func main() {
 		&models.ChargingSlot{},
 		&models.ChargingRecord{},
 		&models.BatteryMaintenanceAlert{},
+		&models.ObstacleAvoidanceConfig{},
+		&models.ObstacleDetectionLog{},
+		&models.ObstacleAvoidanceEvent{},
+		&models.ObstacleHeatmapPoint{},
 	); err != nil {
 		fmt.Printf("Failed to migrate database: %v\n", err)
 		os.Exit(1)
@@ -465,6 +469,19 @@ func main() {
 				records.GET("/:id", handler.GetChargingRecord)
 				records.GET("/battery/:battery_id", handler.GetBatteryChargingRecords)
 			}
+		}
+
+		obstacleAvoidance := api.Group("/obstacle-avoidance", middleware.JWTAuth())
+		{
+			obstacleAvoidance.GET("/config/:uav_id", handler.GetObstacleAvoidanceConfig)
+			obstacleAvoidance.PUT("/config/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.UpdateObstacleAvoidanceConfig)
+			obstacleAvoidance.GET("/heatmap", handler.GetObstacleHeatmap)
+			obstacleAvoidance.DELETE("/heatmap", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ClearObstacleHeatmap)
+			obstacleAvoidance.GET("/logs", handler.GetObstacleAvoidanceLogs)
+			obstacleAvoidance.GET("/statistics", handler.GetObstacleAvoidanceStatistics)
+			obstacleAvoidance.GET("/events", handler.GetAvoidanceEvents)
+			obstacleAvoidance.GET("/events/:id", handler.GetAvoidanceEventDetail)
+			obstacleAvoidance.POST("/test/:uav_id", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.TriggerAvoidanceTest)
 		}
 	}
 

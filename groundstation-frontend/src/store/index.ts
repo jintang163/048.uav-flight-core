@@ -11,6 +11,7 @@ import trackingReducer from './slices/tracking'
 import payloadReducer from './slices/payload'
 import motorReducer from './slices/motor'
 import linkReducer from './slices/link'
+import obstacleAvoidanceReducer from './slices/obstacle-avoidance'
 
 export const store = configureStore({
   reducer: {
@@ -24,7 +25,8 @@ export const store = configureStore({
     tracking: trackingReducer,
     payload: payloadReducer,
     motor: motorReducer,
-    link: linkReducer
+    link: linkReducer,
+    obstacleAvoidance: obstacleAvoidanceReducer
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
