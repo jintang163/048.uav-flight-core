@@ -574,6 +574,7 @@ func main() {
 			collision.POST("/intersections/detect", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.DetectRouteIntersections)
 			collision.POST("/manual", middleware.RoleAuth(models.UserRoleAdmin, models.UserRoleOperator), handler.ManualCollisionAvoidance)
 			collision.GET("/uav/:uav_id/speed-factor", handler.GetUAVSpeedFactor)
+			collision.GET("/uav/:uav_id/cmd-status", handler.GetAvoidCommandStatus)
 			collision.GET("/stats", handler.GetCollisionStats)
 		}
 	}

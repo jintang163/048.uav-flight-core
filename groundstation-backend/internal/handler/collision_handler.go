@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"groundstation-backend/internal/mavlink"
 	"groundstation-backend/internal/repository"
 	"groundstation-backend/internal/service"
 	"groundstation-backend/pkg/utils"
@@ -68,13 +69,8 @@ func GetCollisionAvoidanceStatus(c *gin.Context) {
 	alerts, _ := collisionAvoidService.GetActiveAlerts()
 	intersections, _ := collisionAvoidService.GetActiveIntersections(0)
 
-	enabled := false
-	if len(positions) > 0 {
-		enabled = true
-	}
-
 	status := map[string]interface{}{
-		"enabled":            enabled,
+		"enabled":            collisionAvoidService.IsEnabled(),
 		"active_uavs":        len(positions),
 		"active_alerts":      len(alerts),
 		"intersections":      len(intersections),
@@ -165,4 +161,23 @@ func GetCollisionStats(c *gin.Context) {
 		return
 	}
 	utils.SuccessResponse(c, "获取成功", stats)
+}
+
+func GetAvoidCommandStatus(c *gin.Context) {
+	uavID, err := utils.ParseUint64(c.Param("uav_id"))
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, 400001, "无效的无人机ID", nil)
+		return
+	}
+
+	cmdMgr := mavlink.NewCommandManager()
+	status, cmdID, result, resultMsg := cmdMgr.GetCommandStatus(uavID)
+
+	utils.SuccessResponse(c, "获取成功", map[string]interface{}{
+		"uav_id":     uavID,
+		"status":     string(status),
+		"command_id": cmdID,
+		"result":     result,
+		"result_msg": resultMsg,
+	})
 }

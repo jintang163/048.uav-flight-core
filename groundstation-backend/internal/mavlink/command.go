@@ -23,6 +23,32 @@ const (
 	MAV_COMP_ID_UDP_BRIDGE      = 240
 )
 
+type CommandStatus string
+
+const (
+	CmdStatusPending   CommandStatus = "pending"
+	CmdStatusAcked     CommandStatus = "acked"
+	CmdStatusExecuting CommandStatus = "executing"
+	CmdStatusCompleted CommandStatus = "completed"
+	CmdStatusFailed    CommandStatus = "failed"
+	CmdStatusTimeout   CommandStatus = "timeout"
+)
+
+type pendingCommand struct {
+	CommandID  uint16
+	UAVID      uint64
+	Status     CommandStatus
+	SentAt     time.Time
+	AckedAt    *time.Time
+	Result     uint8
+	ResultMsg  string
+	Params     [7]float32
+	CommandName string
+	RetryCount int
+}
+
+type CommandAckCallback func(uavID uint64, cmdID uint16, result uint8, success bool)
+
 type linkStatusSnapshot struct {
 	ActiveLink     uint8
 	RadioRSSI      int8
@@ -40,11 +66,19 @@ type CommandManager struct {
 	connMu          sync.RWMutex
 	parser          *MAVLinkParser
 	flightService   *service.FlightService
+	collisionService *service.CollisionAvoidanceService
 	heartbeatMgr    *HeartbeatManager
 	listenerTCP     net.Listener
 	listenerUDP     *net.UDPConn
 	linkStatusCache map[uint64]*linkStatusSnapshot
 	linkStatusMu    sync.Mutex
+
+	pendingCommands map[uint64]*pendingCommand
+	pendingCmdMu    sync.Mutex
+	cmdSeqCounter   uint16
+
+	ackCallbacks map[uint16]CommandAckCallback
+	ackCbMu      sync.RWMutex
 }
 
 var commandManager *CommandManager
@@ -53,11 +87,14 @@ var commandOnce sync.Once
 func NewCommandManager() *CommandManager {
 	commandOnce.Do(func() {
 		commandManager = &CommandManager{
-			uavConns:        make(map[uint64]net.Conn),
-			parser:          NewMAVLinkParser(),
-			flightService:   service.NewFlightService(),
-			heartbeatMgr:    NewHeartbeatManager(),
-			linkStatusCache: make(map[uint64]*linkStatusSnapshot),
+			uavConns:          make(map[uint64]net.Conn),
+			parser:            NewMAVLinkParser(),
+			flightService:     service.NewFlightService(),
+			collisionService:  service.NewCollisionAvoidanceService(),
+			heartbeatMgr:      NewHeartbeatManager(),
+			linkStatusCache:   make(map[uint64]*linkStatusSnapshot),
+			pendingCommands:   make(map[uint64]*pendingCommand),
+			ackCallbacks:      make(map[uint16]CommandAckCallback),
 		}
 	})
 	return commandManager
@@ -672,6 +709,19 @@ func (m *CommandManager) processGlobalPosition(uavID uint64, payload []byte) {
 			GroundSpeed:     math.Sqrt(vx*vx + vy*vy),
 			Timestamp:       time.Now(),
 		})
+
+		m.collisionService.ReportPosition(&models.UAVLivePosition{
+			UAVID:      uavID,
+			Latitude:   lat,
+			Longitude:  lng,
+			Altitude:   alt,
+			GroundSpeed: math.Sqrt(vx*vx + vy*vy),
+			Heading:    heading,
+			VelocityX:  vx,
+			VelocityY:  vy,
+			VelocityZ:  vz,
+			Timestamp:  time.Now(),
+		})
 	}
 }
 
@@ -745,8 +795,46 @@ func (m *CommandManager) processCommandAck(uavID uint64, payload []byte) {
 		success := result == 0
 		message := getCommandResultMessage(result)
 
+		now := time.Now()
+		m.pendingCmdMu.Lock()
+		if pc, exists := m.pendingCommands[uavID]; exists && pc.CommandID == command {
+			pc.Status = CmdStatusAcked
+			pc.Result = result
+			pc.ResultMsg = message
+			pc.AckedAt = &now
+		}
+		m.pendingCmdMu.Unlock()
+
+		m.ackCbMu.RLock()
+		cb, cbExists := m.ackCallbacks[command]
+		m.ackCbMu.RUnlock()
+		if cbExists {
+			cb(uavID, command, result, success)
+		}
+
 		websocket.BroadcastCommandResponse(uavID, fmt.Sprintf("CMD_%d", command), success, message)
 	}
+}
+
+func (m *CommandManager) RegisterAckCallback(commandID uint16, cb CommandAckCallback) {
+	m.ackCbMu.Lock()
+	defer m.ackCbMu.Unlock()
+	m.ackCallbacks[commandID] = cb
+}
+
+func (m *CommandManager) UnregisterAckCallback(commandID uint16) {
+	m.ackCbMu.Lock()
+	defer m.ackCbMu.Unlock()
+	delete(m.ackCallbacks, commandID)
+}
+
+func (m *CommandManager) GetCommandStatus(uavID uint64) (CommandStatus, uint16, uint8, string) {
+	m.pendingCmdMu.RLock()
+	defer m.pendingCmdMu.RUnlock()
+	if pc, exists := m.pendingCommands[uavID]; exists {
+		return pc.Status, pc.CommandID, pc.Result, pc.ResultMsg
+	}
+	return CmdStatusCompleted, 0, 0, ""
 }
 
 func (m *CommandManager) SendCommand(uavID uint64, data []byte) error {
@@ -832,7 +920,22 @@ func (m *CommandManager) SendCustomCommand(uavID uint64, commandName string, par
 	}
 
 	data := EncodeCommandLong(uavID, cmd, p[0], p[1], p[2], p[3], p[4], p[5], p[6])
-	return m.SendCommand(uavID, data)
+	err := m.SendCommand(uavID, data)
+
+	if err == nil {
+		m.pendingCmdMu.Lock()
+		m.pendingCommands[uavID] = &pendingCommand{
+			CommandID:   cmd,
+			UAVID:       uavID,
+			Status:      CmdStatusPending,
+			SentAt:      time.Now(),
+			Params:      p,
+			CommandName: commandName,
+		}
+		m.pendingCmdMu.Unlock()
+	}
+
+	return err
 }
 
 func floatParam(params map[string]interface{}, key string) float32 {
